@@ -1,6 +1,6 @@
 use crate::constants::{DEGREE, PRIME};
 use std::fmt::{Debug, Formatter};
-use std::ops::{Add, AddAssign, Mul, Neg, Sub};
+use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 
 /// An element of `Z/pZ`, where `p = PRIME`.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -275,6 +275,36 @@ where
     type Output = PolyRingElem;
     fn sub(self, other: T) -> PolyRingElem {
         &self - other
+    }
+}
+
+/*******************************************************************************
+ * SubAssign for BaseRingElem and PolyRingElem
+ *******************************************************************************/
+
+impl<T> SubAssign<T> for BaseRingElem
+where
+    T: AsRef<BaseRingElem>,
+{
+    fn sub_assign(&mut self, other: T) {
+        let other_: &BaseRingElem = other.as_ref();
+        self.element += PRIME - other_.element;
+        self.element %= PRIME;
+    }
+}
+
+impl<T> SubAssign<T> for PolyRingElem
+where
+    T: AsRef<PolyRingElem>,
+{
+    fn sub_assign(&mut self, other: T) {
+        let other_: &PolyRingElem = other.as_ref();
+        self.element
+            .iter_mut()
+            .zip(other_.element.iter())
+            .for_each(|(l, r)| {
+                *l -= r;
+            });
     }
 }
 
