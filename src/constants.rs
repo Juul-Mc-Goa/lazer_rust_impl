@@ -7,7 +7,8 @@ pub const LOG_PRIME: u64 = 40;
 pub const DEGREE: u64 = 64;
 
 pub const JL_MAX_NORM: u64 = 1 << 28;
-pub const JL_MAX_NORM_SQ: u64 = 1 << 56;
+pub const JL_MAX_NORM_SQ: u128 = 1 << 56;
+
 pub const AES128_BLOCK_BYTES: u64 = 512;
 
 lazy_static! {
