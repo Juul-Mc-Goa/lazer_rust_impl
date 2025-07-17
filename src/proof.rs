@@ -38,7 +38,7 @@ fn quad_length_varg(
     is_tail: bool,
     r: usize,
     quadratic: u8,
-    norm_square: Vec<u128>,
+    norm_square: &Vec<u128>,
     dim: &Vec<usize>,
     z_base: usize,
     decomp_dim: usize,
@@ -90,7 +90,7 @@ fn quad_length_varg(
 
 #[allow(dead_code)]
 impl Proof {
-    pub fn new(statement: Statement, witness: Witness, quadratic: u8, is_tail: bool) -> Self {
+    pub fn new(witness: Witness, quadratic: u8, is_tail: bool) -> Self {
         // TODO: commit_params
         // TODO: compute commitment ranks and proof.normsquare
 
@@ -148,7 +148,7 @@ impl Proof {
         let mut uniform_length: usize = 0;
         let mut quadratic_base: usize = 0;
         let mut quadratic_length: usize = 0;
-        let varg: usize;
+        let mut varg: usize;
         let mut commit_rank_1: usize = 0;
         let mut commit_rank_2: usize = 0;
         let mut total_norm_square: u128 = 0;
@@ -167,7 +167,6 @@ impl Proof {
 
             let rr: usize = decomp_wit_length.iter().sum();
 
-            // decomposition in width
             // compute l2 square of witness
             let mut varz: u128 = norm_square.iter().sum();
             // compute average l2 square of decomposed vectors
@@ -210,7 +209,7 @@ impl Proof {
                 is_tail,
                 r,
                 quadratic,
-                norm_square,
+                &norm_square,
                 &dim,
                 z_base,
                 decomp_dim,
