@@ -11,7 +11,13 @@ pub const JL_MAX_NORM_SQ: u128 = 1 << 56;
 
 pub const AES128_BLOCK_BYTES: u64 = 512;
 
+pub const CHALLENGE_NORM: u64 = 14;
+pub const TAU1: u128 = 32;
+pub const TAU2: u128 = 8;
+
 lazy_static! {
     /// the slack factor introduced when proving norm bounds
-    static ref SLACK: f64 = (128_f64 / 30.0).sqrt();
+    pub static ref SLACK: f64 = (128_f64 / 30.0).sqrt();
+    /// some factor used in the `sis_secure` function
+    pub static ref LOG_DELTA: f64 = 1.00444_f64.log2();
 }
