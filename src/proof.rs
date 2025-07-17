@@ -151,6 +151,7 @@ fn commit_rank_1_total_norm(
     quadratic: u8,
     varz: u128,
     varg: u128,
+    decomp_dim: usize,
     z_base: usize,
     z_length: usize,
     uniform_base: usize,
@@ -167,7 +168,7 @@ fn commit_rank_1_total_norm(
 
         total_norm_square = ((1 << 2 * z_base as u128) / 12 * (z_length as u128 - 1)
             + varz / (1 << 2 * z_base * (z_length - 1)))
-            * new_r as u128;
+            * decomp_dim as u128;
 
         if !is_tail {
             // quadratic contribution: linear coefs
@@ -209,6 +210,7 @@ fn commit_2_u1_u2(
     new_r: usize,
     total_sqrt: f64,
     varz: u128,
+    decomp_dim: usize,
     commit_rank_1: usize,
     uniform_length: usize,
     quadratic_length: usize,
@@ -226,7 +228,7 @@ fn commit_2_u1_u2(
             }
         }
 
-        // compute commitment length
+        // compute outer commitment length
         u1_len = commit_rank_2;
         u2_len = commit_rank_2;
 
@@ -237,7 +239,7 @@ fn commit_2_u1_u2(
             // (z + g + h)
             && uniform_length * new_r * commit_rank_1
             + (uniform_length + quadratic_length) * new_r * (new_r + 1) / 2
-            <= (1.1 * new_r as f64) as usize
+            <= (1.1 * decomp_dim as f64) as usize
         {
             // every parameter is correct: return
             return (true, commit_rank_2, u1_len, u2_len);
@@ -254,7 +256,7 @@ fn commit_2_u1_u2(
 
         if commit_rank_1 <= 32
             && (u1_len + u2_len) * LOG_PRIME as usize
-                <= (1.1 * (new_r as f64) * ((varz as f64).log2() / 2.0 + 2.05)) as usize
+                <= (1.1 * (decomp_dim as f64) * ((varz as f64).log2() / 2.0 + 2.05)) as usize
         {
             // every parameter is correct: return
             return (true, commit_rank_2, u1_len, u2_len);
@@ -304,7 +306,7 @@ impl Proof {
             wit_length[r - 1] = 1;
         }
 
-        // first step computation for wit_length
+        // compute global variables used in the for loop
         let mut dim_acc = 0; // current dimension of joined vectors
         let mut max_dim = 0; // max dimension of joined vectors
 
@@ -317,6 +319,7 @@ impl Proof {
             }
         }
 
+        // initialize most parameters, these will be modified inside the loop
         let mut new_wit_length: Vec<usize> = Vec::new();
 
         let mut decomp_dim: usize;
@@ -380,6 +383,7 @@ impl Proof {
                 quadratic,
                 varz,
                 varg,
+                decomp_dim,
                 z_base,
                 z_length,
                 uniform_base,
@@ -391,7 +395,7 @@ impl Proof {
 
             total_sqrt = (total_norm_square as f64).sqrt();
 
-            // compute the last params: commitment rank 2, length of vectors u1, u2
+            // compute the last params: commitment rank 2, length of vectors u1 and u2
             let good_params: bool;
             (good_params, commit_rank_2, u1_len, u2_len) = commit_2_u1_u2(
                 is_tail,
@@ -399,6 +403,7 @@ impl Proof {
                 new_r,
                 total_sqrt,
                 varz,
+                decomp_dim,
                 commit_rank_1,
                 uniform_length,
                 quadratic_length,
