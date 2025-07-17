@@ -163,7 +163,7 @@ fn commit_rank_1_total_norm(
     let mut commit_rank_1: usize = 0;
     let mut total_norm_square: u128 = 0;
 
-    while commit_rank_1 < 32 {
+    while commit_rank_1 <= 32 {
         commit_rank_1 += 1;
 
         total_norm_square = ((1 << 2 * z_base as u128) / 12 * (z_length as u128 - 1)
@@ -221,7 +221,7 @@ fn commit_2_u1_u2(
 
     if !is_tail {
         // compute commit_rank_2
-        while commit_rank_2 < 32 {
+        while commit_rank_2 <= 32 {
             commit_rank_2 += 1;
             if sis_secure(commit_rank_2, 2.0 * *SLACK * total_sqrt) {
                 break;
@@ -413,6 +413,12 @@ impl Proof {
             if good_params {
                 break;
             }
+        }
+
+        if commit_rank_1 == 33 {
+            panic!("Cannot not make inner commitments secure!");
+        } else if commit_rank_2 == 33 {
+            panic!("Cannot not make outer commitments secure!");
         }
 
         // build the commitment params
