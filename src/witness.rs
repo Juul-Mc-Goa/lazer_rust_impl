@@ -1,6 +1,7 @@
 use crate::{
     constants::{AES128_BLOCK_BYTES, DEGREE, JL_MAX_NORM_SQ},
     matrices::{BaseMatrix, PolyMatrix},
+    proof::{OuterCommit, Proof},
     ring::{BaseRingElem, PolyRingElem},
 };
 use aes::cipher::{KeyIvInit, StreamCipher};
@@ -19,7 +20,7 @@ pub struct Witness {
     /// Dimension of each vector.
     pub dim: Vec<usize>,
     /// Squared norm of each vector
-    pub norm_square: Vec<u64>,
+    pub norm_square: Vec<u128>,
     /// The list of vectors.
     pub vectors: Vec<Vec<PolyRingElem>>,
 }
@@ -44,25 +45,6 @@ pub struct CommitParams {
     pub commit_rank_2: usize,
     pub u1_len: usize,
     pub u2_len: usize,
-}
-
-#[allow(dead_code)]
-pub struct OuterCommit {
-    u1: Vec<PolyRingElem>,
-    u2: Vec<PolyRingElem>,
-}
-
-#[allow(dead_code)]
-pub struct Proof {
-    pub r: usize,
-    pub dim: Vec<usize>,
-    pub wit_length: Vec<usize>,
-    pub tail: bool,
-    pub commit_params: CommitParams,
-    pub outer_commit_1: Vec<PolyRingElem>,
-    pub jl_nonce: u128,
-    pub projection: [BaseRingElem; 256],
-    pub norm_square: u64,
 }
 
 #[allow(dead_code)]
