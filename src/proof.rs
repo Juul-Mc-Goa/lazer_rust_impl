@@ -1,14 +1,9 @@
 use crate::{
+    commit::{CommitParams, OuterCommit},
     constants::{CHALLENGE_NORM, DEGREE, LOG_DELTA, LOG_PRIME, SLACK, TAU1, TAU2},
     ring::{BaseRingElem, PolyRingElem},
-    witness::{CommitParams, Statement, Witness},
+    witness::Witness,
 };
-
-#[allow(dead_code)]
-pub struct OuterCommit {
-    u1: Vec<PolyRingElem>,
-    u2: Vec<PolyRingElem>,
-}
 
 #[allow(dead_code)]
 pub struct Proof {
@@ -17,6 +12,7 @@ pub struct Proof {
     pub dim: Vec<usize>,
     /// decomposition parts
     pub wit_length: Vec<usize>,
+    /// does this proof have to be proven as is ? or reduced further ?
     pub tail: bool,
     pub commit_params: CommitParams,
     pub outer_commits: OuterCommit,
@@ -112,7 +108,7 @@ fn quad_length_varg(
         let mut t: usize = 0;
         let mut u = 0;
 
-        // the fuck is this ?
+        // NOTE: the fuck is this ?
         for i in 0..r {
             // average of coefficients (squared)
             let vars = norm_square[i] as f64 / (dim[i] as f64 * DEGREE as f64);
