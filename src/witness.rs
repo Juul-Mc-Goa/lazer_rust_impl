@@ -1,8 +1,8 @@
 use crate::{
-    constants::{AES128_BLOCK_BYTES, DEGREE, JL_MAX_NORM_SQ},
-    matrices::{BaseMatrix, PolyMatrix},
-    proof::{OuterCommit, Proof},
+    constants::{DEGREE, JL_MAX_NORM_SQ},
+    proof::Proof,
     ring::{BaseRingElem, PolyRingElem},
+    statement::Statement,
 };
 use aes::cipher::{KeyIvInit, StreamCipher};
 use ctr;
@@ -25,39 +25,8 @@ pub struct Witness {
     pub vectors: Vec<Vec<PolyRingElem>>,
 }
 
-#[allow(dead_code)]
-pub struct Constraint {
-    pub degree: usize,
-    pub quadratic_part: PolyMatrix,
-    pub linear_part: Vec<PolyRingElem>,
-    pub constant: PolyRingElem,
-}
-
-#[allow(dead_code)]
-pub struct CommitParams {
-    pub z_base: usize,
-    pub z_length: usize,
-    pub uniform_base: usize,
-    pub uniform_length: usize,
-    pub quadratic_base: usize,
-    pub quadratic_length: usize,
-    pub commit_rank_1: usize,
-    pub commit_rank_2: usize,
-    pub u1_len: usize,
-    pub u2_len: usize,
-}
-
-#[allow(dead_code)]
-pub struct Statement {
-    pub outer_commit: OuterCommit,
-    pub challenges: Vec<PolyRingElem>,
-    pub constraint: Constraint,
-    pub norm_bound: u64,
-    pub hash: [u8; 16],
-}
-
 /// Computes smallest power of 2 that is not smaller than `x`.
-fn next_2_power(mut x: u64) -> u64 {
+pub fn next_2_power(mut x: u64) -> u64 {
     x -= 1;
     x |= x >> 1;
     x |= x >> 2;
@@ -98,6 +67,31 @@ pub fn add_apply_jl_matrix(
                 jl_bit_idx += 1;
             }
         }
+    }
+}
+
+impl Witness {
+    /// Create a witness with correct capacities.
+    pub fn new_raw(r: usize, dim: Vec<usize>) -> Self {
+        let len = dim.iter().sum();
+        Self {
+            r,
+            dim,
+            norm_square: Vec::with_capacity(r),
+            vectors: Vec::with_capacity(len),
+        }
+    }
+
+    pub fn new(statement: &Statement) -> Self {
+        let mut r = statement.r;
+        let mut dim = vec![statement.dim; statement.commit_params.z_length];
+
+        if !statement.tail {
+            r += 1;
+            dim.push(statement.dim_inner);
+        }
+
+        Self::new_raw(r, dim)
     }
 }
 
