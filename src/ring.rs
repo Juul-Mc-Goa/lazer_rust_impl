@@ -1,4 +1,7 @@
-use crate::constants::{DEGREE, PRIME};
+use rand::Rng;
+use rand_chacha::ChaCha8Rng;
+
+use crate::constants::{DEGREE, LOG_PRIME, PRIME};
 use std::fmt::{Debug, Formatter};
 use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 
@@ -52,6 +55,13 @@ impl BaseRingElem {
     pub fn one() -> Self {
         BaseRingElem { element: 1 }
     }
+
+    /// Generate an uniformly random integer from a given RNG.
+    pub fn random(rng: &mut ChaCha8Rng) -> Self {
+        BaseRingElem {
+            element: rng.random_range(0..PRIME),
+        }
+    }
 }
 
 impl PolyRingElem {
@@ -93,11 +103,57 @@ impl PolyRingElem {
     }
 
     /// Build a `PolyRingElem` from a list of coefficients.
+    pub fn from_slice_u64(v: &[u64]) -> Self {
+        Self {
+            element: v.iter().map(|u| (*u).into()).collect(),
+        }
+    }
+
+    /// Build a `PolyRingElem` from a list of coefficients.
     pub fn from_vec_u64(v: Vec<u64>) -> Self {
         Self {
             element: v.iter().map(|u| (*u).into()).collect(),
         }
     }
+
+    /// Generate an uniformly random polynomial from a given RNG.
+    pub fn random(rng: &mut ChaCha8Rng) -> Self {
+        Self {
+            element: (0..DEGREE).map(|_| BaseRingElem::random(rng)).collect(),
+        }
+    }
+
+    /// Decompose the polynomial in the base `2^d`, returns a list of polynomials.
+    pub fn decompose(&self, d: usize) -> Vec<Self> {
+        let base = 1 << d;
+        let length = (LOG_PRIME as usize).div_ceil(d);
+
+        let mut coefs: Vec<Vec<u64>> = vec![Vec::new(); length];
+
+        for i in 0..DEGREE {
+            let mut coef = self.element[i as usize].element;
+            for j in 0..length {
+                let coef_limb = coef & (base - 1);
+                coefs[j].push(coef_limb);
+                coef >>= d as u64;
+            }
+        }
+
+        coefs.iter().map(|v| Self::from_slice_u64(v)).collect()
+    }
+}
+
+pub fn poly_vec_decomp(vec: &[PolyRingElem], d: usize) -> Vec<Vec<PolyRingElem>> {
+    let length = (LOG_PRIME as usize).div_ceil(d);
+    let mut result: Vec<Vec<PolyRingElem>> = vec![Vec::new(); length];
+
+    for poly in vec {
+        for (i, small_poly) in poly.decompose(d).into_iter().enumerate() {
+            result[i].push(small_poly)
+        }
+    }
+
+    result
 }
 
 /*******************************************************************************
@@ -541,5 +597,39 @@ mod tests {
         ]);
 
         assert_eq!(result, c);
+    }
+
+    #[test]
+    fn pol_decomp() {
+        let a = PolyRingElem::from_vec_u64((0..64).collect());
+
+        let log_base = 2;
+        let decomp = a.decompose(log_base);
+
+        let result_head = [
+            PolyRingElem::from_vec_u64(vec![
+                0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3,
+                0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3,
+                0, 1, 2, 3, 0, 1, 2, 3,
+            ]),
+            PolyRingElem::from_vec_u64(vec![
+                0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2,
+                3, 3, 3, 3, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 0, 0, 0, 0, 1, 1, 1, 1,
+                2, 2, 2, 2, 3, 3, 3, 3,
+            ]),
+            PolyRingElem::from_vec_u64(vec![
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3,
+                3, 3, 3, 3, 3, 3, 3, 3,
+            ]),
+        ];
+
+        assert_eq!(decomp[0], result_head[0]);
+        assert_eq!(decomp[1], result_head[1]);
+        assert_eq!(decomp[2], result_head[2]);
+
+        for pol in decomp[3..].into_iter() {
+            assert_eq!(*pol, PolyRingElem::zero());
+        }
     }
 }
