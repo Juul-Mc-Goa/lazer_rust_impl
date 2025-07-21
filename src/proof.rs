@@ -23,8 +23,8 @@ pub struct Proof {
     pub norm_square: u128,
 }
 
-/// Check that `norm` is small enough to have secure parameters for a lattice of
-/// rank `rank`.
+/// Check that `norm` is small enough for the current global parameters and a
+/// lattice of rank `rank`.
 pub fn sis_secure(rank: usize, norm: f64) -> bool {
     let mut maxlog: f64 = 2.0 * (*LOG_DELTA * (LOG_PRIME * DEGREE * (rank as u64)) as f64).sqrt();
     maxlog = maxlog.min(LOG_PRIME as f64);
