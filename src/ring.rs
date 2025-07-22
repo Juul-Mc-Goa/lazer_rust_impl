@@ -156,6 +156,17 @@ pub fn poly_vec_decomp(vec: &[PolyRingElem], d: usize) -> Vec<Vec<PolyRingElem>>
     result
 }
 
+pub fn poly_vec_bytes_iter(vec: &[PolyRingElem]) -> impl Iterator<Item = u8> {
+    vec.iter()
+        .map(|pol| {
+            pol.element
+                .iter()
+                .map(|base_elem| base_elem.element.to_le_bytes())
+                .flatten()
+        })
+        .flatten()
+}
+
 /*******************************************************************************
  * Add for BaseRingElem and PolyRingElem
  *******************************************************************************/
