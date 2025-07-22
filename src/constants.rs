@@ -6,9 +6,11 @@ pub const LOG_PRIME: u64 = 40;
 /// the degree `d` defining `R_q = (Z/qZ)[X] / (X^d + 1)`
 pub const DEGREE: u64 = 64;
 
+#[allow(dead_code)]
 pub const JL_MAX_NORM: u64 = 1 << 28;
 pub const JL_MAX_NORM_SQ: u128 = 1 << 56;
 
+#[allow(dead_code)]
 pub const AES128_BLOCK_BYTES: u64 = 512;
 
 pub const CHALLENGE_NORM: u64 = 14;

@@ -8,14 +8,10 @@ pub struct BaseMatrix(pub Vec<Vec<BaseRingElem>>);
 
 /// Sparse matrix with polynomial coefficients: a vector of
 /// `(row_index, column_index, coef)`.
+#[allow(dead_code)]
 pub struct SparsePolyMatrix(pub Vec<(usize, usize, PolyRingElem)>);
 
-impl From<PolyMatrix> for BaseMatrix {
-    fn from(_value: PolyMatrix) -> Self {
-        todo!()
-    }
-}
-
+#[allow(dead_code)]
 impl PolyMatrix {
     /// Generate a random matrix of the given size, using the given RNG.
     pub fn random(rng: &mut ChaCha8Rng, rows: usize, cols: usize) -> Self {

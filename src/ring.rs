@@ -143,6 +143,7 @@ impl PolyRingElem {
     }
 }
 
+#[allow(dead_code)]
 pub fn poly_vec_decomp(vec: &[PolyRingElem], d: usize) -> Vec<Vec<PolyRingElem>> {
     let length = (LOG_PRIME as usize).div_ceil(d);
     let mut result: Vec<Vec<PolyRingElem>> = vec![Vec::new(); length];
@@ -156,6 +157,7 @@ pub fn poly_vec_decomp(vec: &[PolyRingElem], d: usize) -> Vec<Vec<PolyRingElem>>
     result
 }
 
+#[allow(dead_code)]
 pub fn poly_vec_bytes_iter(vec: &[PolyRingElem]) -> impl Iterator<Item = u8> {
     vec.iter()
         .map(|pol| {
