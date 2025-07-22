@@ -70,6 +70,7 @@ pub fn add_apply_jl_matrix(
     }
 }
 
+#[allow(dead_code)]
 impl Witness {
     /// Create a witness with correct capacities.
     pub fn new_raw(r: usize, dim: Vec<usize>) -> Self {
@@ -170,21 +171,16 @@ pub fn wit_project(statement: &mut Statement, proof: &mut Proof, wit: Witness) {
 
     // initialise hasher: send hashbuf[..16] + proof.projection as input
     let mut hasher = Shake128::default();
-    // concatenate the left part of `hashbuf` and the bytes in `projection`
-    let hash_input: Vec<u8> = hashbuf_left
-        .iter()
-        .chain(
-            proof
-                .projection
-                .iter()
-                .map(|e| e.element.to_be_bytes())
-                .collect::<Vec<_>>()
-                .as_flattened()
-                .iter(),
-        )
-        .map(|u_ref| *u_ref)
-        .collect();
-    hasher.update(&hash_input);
+    // digest the left part of `hashbuf` and the bytes in `projection`
+    hasher.update(&hashbuf_left);
+    hasher.update(
+        &proof
+            .projection
+            .iter()
+            .map(|e| e.element.to_le_bytes())
+            .collect::<Vec<_>>()
+            .as_flattened(),
+    );
 
     let mut reader = hasher.finalize_xof();
 

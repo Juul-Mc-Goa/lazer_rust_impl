@@ -24,6 +24,7 @@ pub struct Statement {
 }
 
 /// Computes `len.div_ceil(deg2) * deg2` where `deg2 = next_2_power(deg)`.
+#[allow(dead_code)]
 pub fn extlen(len: usize, deg: usize) -> usize {
     if deg == 1 {
         len
@@ -33,6 +34,7 @@ pub fn extlen(len: usize, deg: usize) -> usize {
     }
 }
 
+#[allow(dead_code)]
 impl Statement {
     /// Create a new `Statement` and the commitment key.
     pub fn new(proof: &Proof, hash: &[u8; 16]) -> (Self, CommitKey) {
@@ -51,21 +53,30 @@ impl Statement {
         }
 
         let com_params = proof.commit_params.clone();
-        // inner commitments dimmension
-        let mut dim_inner = r * com_params.uniform_length * com_params.commit_rank_1;
-        // garbage dimmension
-        dim_inner += (com_params.uniform_length + com_params.quadratic_length) * r * (r + 1) / 2;
+        let CommitParams {
+            z_base: _,
+            z_length: _,
+            uniform_base: _,
+            uniform_length: unif_len,
+            quadratic_base: _,
+            quadratic_length: quad_len,
+            commit_rank_1: com_rank1,
+            // commit_rank_2: com_rank2,
+            ..
+        } = com_params;
 
-        // len is a multiple of com_rank_2
-        // len is bigger than unif_len * com_rank_1
-        let mut len = r * extlen(
-            com_params.uniform_length * com_params.commit_rank_1,
-            com_params.commit_rank_2,
-        );
-        len += com_params.quadratic_length * r * (r + 1) / 2;
-        len = len
-            .max(com_params.uniform_length * r * (r + 1) / 2)
-            .max(max_dim);
+        // inner commitments dimmension
+        let mut dim_inner = r * unif_len * com_rank1;
+        // garbage dimmension
+        dim_inner += (unif_len + quad_len) * r * (r + 1) / 2;
+
+        // NOTE: legacy code ahead
+        //
+        // len is a multiple of next_2_power(com_rank2)
+        // len is bigger than unif_len * com_rank1
+        // let mut len = r * extlen(unif_len * com_rank1, com_rank2);
+        // len += quad_len * r * (r + 1) / 2;
+        // len = len.max(unif_len * r * (r + 1) / 2).max(max_dim);
 
         (
             Self {
@@ -80,7 +91,7 @@ impl Statement {
                 squared_norm_bound: 0,
                 hash: *hash,
             },
-            CommitKey::new(len),
+            CommitKey::new(proof.tail, r, max_dim, com_params),
         )
     }
 }
