@@ -1,16 +1,20 @@
 use crate::{
-    constants::{DEGREE, LOG_PRIME},
+    matrices::PolyMatrix,
     proof::Proof,
-    ring::{PolyRingElem, poly_vec_decomp},
+    ring::{PolyRingElem, poly_vec_bytes_iter, poly_vec_decomp},
     statement::Statement,
     witness::Witness,
 };
 
 use rand::prelude::*;
 use rand_chacha::ChaCha8Rng;
+use sha3::{
+    Shake128,
+    digest::{ExtendableOutput, Update, XofReader},
+};
 
 #[allow(dead_code)]
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct CommitParams {
     pub z_base: usize,
     pub z_length: usize,
@@ -24,58 +28,115 @@ pub struct CommitParams {
     pub u2_len: usize,
 }
 
+#[allow(dead_code)]
+pub enum CommitKeyData {
+    /// The matrices `A, B, C` used to compute
+    /// `u1 = B * decomp(A * z) + C * decomp(quad_garbage)`.
+    Tail {
+        /// matrix of size `commit_rank_1 * dim`
+        matrix_a: PolyMatrix,
+        /// `r * z_length` matrices of size `commit_rank_2 * commit_rank_1`
+        matrices_b: Vec<Vec<PolyMatrix>>,
+        /// `r * quad_length` matrices, where `matrix_c[i][k]` has size `commit_rank_2 * i`.
+        matrices_c: Vec<Vec<PolyMatrix>>,
+    },
+    /// The matrices `A, B, C` used to compute:
+    /// - `u1 = B * decomp(A * z) + C * decomp(quad_garbage)`
+    /// - `u2 = D * decomp(unif_garbage)`
+    NoTail {
+        /// matrix of size `commit_rank_1 * dim`
+        matrix_a: PolyMatrix,
+        /// `r * z_length` matrices of size `commit_rank_2 * commit_rank_1`
+        matrices_b: Vec<Vec<PolyMatrix>>,
+        /// `r * quad_length` matrices, where `matrix_c[i][k]` has size `commit_rank_2 * i`.
+        matrices_c: Vec<Vec<PolyMatrix>>,
+        /// `r * uniform_length` matrices, where `matrix_d[i][k]` has size `commit_rank_2 * i`.
+        matrices_d: Vec<Vec<PolyMatrix>>,
+    },
+}
+
+#[allow(dead_code)]
 pub struct CommitKey {
-    data: Vec<PolyRingElem>,
-    // inner_data
-    //
+    /// The matrices used for commiting.
+    data: CommitKeyData,
+    /// Seed used to generate `self.data`
     seed: <ChaCha8Rng as SeedableRng>::Seed,
 }
 
+#[allow(dead_code)]
+#[derive(Clone)]
 pub enum Commitments {
     Tail {
         inner: Vec<PolyRingElem>,
         garbage: Vec<PolyRingElem>,
     },
     NoTail {
+        inner: Vec<PolyRingElem>,
         u1: Vec<PolyRingElem>,
         u2: Vec<PolyRingElem>,
     },
 }
 
+#[allow(dead_code)]
 impl CommitKey {
-    pub fn new(len: usize) -> Self {
+    pub fn new(tail: bool, r: usize, dim: usize, com_params: CommitParams) -> Self {
         // generate seed
         let mut seed: <ChaCha8Rng as SeedableRng>::Seed = Default::default();
         rand::rng().fill(&mut seed);
 
-        //generate data
+        // generate data
         let mut rng = ChaCha8Rng::from_seed(seed);
-        let data: Vec<PolyRingElem> = (0..len).map(|_| PolyRingElem::random(&mut rng)).collect();
 
-        Self { data, seed }
-    }
+        let matrix_a: PolyMatrix = PolyMatrix::random(&mut rng, com_params.commit_rank_1, dim);
+        let matrices_b: Vec<Vec<PolyMatrix>> = (0..r)
+            .map(|_| {
+                (0..com_params.z_length)
+                    .map(|_| {
+                        PolyMatrix::random(
+                            &mut rng,
+                            com_params.commit_rank_2,
+                            com_params.commit_rank_1,
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        let matrices_c: Vec<Vec<PolyMatrix>> = (0..r)
+            .map(|i| {
+                (0..com_params.quadratic_length)
+                    .map(|_| PolyMatrix::random(&mut rng, com_params.commit_rank_2, i))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
 
-    pub fn apply_matrix(&self, in_vec: &Vec<PolyRingElem>, out_dim: usize) -> Vec<PolyRingElem> {
-        let mut out_vec = vec![PolyRingElem::zero(); out_dim];
-
-        let mut i = 0;
-        for line in self.data.chunks(in_vec.len()).take(out_dim) {
-            for (l_coef, v_coord) in line.iter().zip(in_vec.iter()) {
-                out_vec[i] += l_coef * v_coord;
+        if tail {
+            Self {
+                data: CommitKeyData::Tail {
+                    matrix_a,
+                    matrices_b,
+                    matrices_c,
+                },
+                seed,
             }
-            i += 1;
-        }
+        } else {
+            let matrices_d: Vec<Vec<PolyMatrix>> = (0..r)
+                .map(|i| {
+                    (0..com_params.uniform_length)
+                        .map(|_| PolyMatrix::random(&mut rng, com_params.commit_rank_2, i))
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>();
 
-        if i + 1 < out_dim {
-            panic!(
-                "Commitment key is too small: {} < {} * {}",
-                self.data.len(),
-                in_vec.len(),
-                out_vec.len(),
-            );
+            Self {
+                data: CommitKeyData::NoTail {
+                    matrix_a,
+                    matrices_b,
+                    matrices_c,
+                    matrices_d,
+                },
+                seed,
+            }
         }
-
-        out_vec
     }
 }
 
@@ -88,6 +149,7 @@ impl Commitments {
             }
         } else {
             Self::NoTail {
+                inner: Vec::new(),
                 u1: Vec::new(),
                 u2: Vec::new(),
             }
@@ -95,75 +157,78 @@ impl Commitments {
     }
 }
 
+#[allow(dead_code)]
 fn commit_tail(
+    inner: &mut Vec<PolyRingElem>,
     witness: &[Vec<PolyRingElem>],
     commit_key: &CommitKey,
-    com_params: &CommitParams,
-) -> Vec<PolyRingElem> {
-    let l = com_params.uniform_length * com_params.commit_rank_1;
-    let mut result: Vec<PolyRingElem> = Vec::with_capacity(witness.len() * l);
+) {
+    let CommitKeyData::Tail { ref matrix_a, .. } = commit_key.data else {
+        unreachable!()
+    };
 
-    for i in 0..witness.len() {
-        result.append(&mut commit_key.apply_matrix(&witness[i], com_params.commit_rank_1));
+    // apply the matrix A to each vector in the witness
+    for w in witness {
+        inner.append(&mut matrix_a.apply(w));
     }
-
-    result
 }
 
+#[allow(dead_code)]
 fn commit_no_tail(
-    u1: &mut Vec<PolyRingElem>,
+    outer: &mut Vec<PolyRingElem>,
+    inner: &mut Vec<PolyRingElem>,
     witness: &[Vec<PolyRingElem>],
     commit_key: &CommitKey,
     com_params: &CommitParams,
-) -> Vec<Vec<PolyRingElem>> {
-    // TODO: - apply offset matrix to get outer commit summand
+) {
+    let CommitKeyData::NoTail {
+        ref matrix_a,
+        ref matrices_b,
+        matrices_c: _,
+        matrices_d: _,
+    } = commit_key.data
+    else {
+        unreachable!()
+    };
 
-    let (com_rank1, unif_base, unif_len) = (
-        com_params.commit_rank_1,
-        com_params.uniform_base,
-        com_params.uniform_length,
-    );
-    let mut inner_commit: Vec<PolyRingElem> = Vec::with_capacity(com_rank1 * unif_len);
-
-    let mut inner_decomp: Vec<Vec<PolyRingElem>> = Vec::new();
+    let (com_rank1, unif_base) = (com_params.commit_rank_1, com_params.uniform_base);
 
     for i in 0..witness.len() {
-        inner_commit.append(&mut commit_key.apply_matrix(&witness[i], com_rank1));
+        inner.append(&mut matrix_a.apply(&witness[i]));
 
-        // decompose inner_commit
-        let com_start_idx = inner_commit.len() - com_rank1;
-        inner_decomp.append(&mut poly_vec_decomp(
-            &inner_commit[com_start_idx..],
-            unif_base,
-        ));
+        let com_start_idx = inner.len() - com_rank1;
+
+        // decompose inner_commit, apply the matrices in matrices_b
+        for (k, inner_decomp) in poly_vec_decomp(&inner[com_start_idx..], unif_base)
+            .iter()
+            .enumerate()
+        {
+            matrices_b[i][k].add_apply(outer, inner_decomp);
+        }
     }
-
-    inner_decomp
 }
 
+#[allow(dead_code)]
 pub fn commit(
     commit_key: &CommitKey,
     output_stat: &mut Statement,
     output_wit: &mut Witness,
     proof: &mut Proof,
     input_wit: &Witness,
-) -> Vec<Vec<PolyRingElem>> {
-    let r = input_wit.r;
-    let dim = &input_wit.dim;
+) {
+    let (r, dim) = (input_wit.r, &input_wit.dim);
     let com_params = &output_stat.commit_params;
 
-    let hashbuf_len = 16 + com_params.u1_len * DEGREE as usize * (LOG_PRIME >> 3) as usize;
-    let mut hashbuf = vec![0_u8; hashbuf_len];
-
-    // out_vec is the concatenation of (commitment to iwt.vectors) and (garbage)
-    let out_vec = &mut output_wit.vectors;
-
+    // full_witness is the concatenation of (commitment to iwt.vectors) and (garbage)
     let mut full_witness: Vec<Vec<PolyRingElem>> =
         Vec::with_capacity(output_stat.r * output_stat.dim);
 
     let mut vector_idx = 0; // in 0..r
     let mut coord_idx = 0; // in 0..n
 
+    output_stat.commitments = Commitments::new(proof.tail);
+
+    // first step: handle inner commitment (using input_wit)
     for i in 0..r {
         full_witness[vector_idx].extend_from_slice(&input_wit.vectors[i]);
         coord_idx += dim[i];
@@ -172,25 +237,32 @@ pub fn commit(
             let coords_to_fill = output_stat.dim - coord_idx;
             let vectors_to_fill = proof.wit_length[i] - 1;
 
-            // fill the rest of commits[vector_idx] with zeros
+            // fill the rest of full_witness[vector_idx] with zeros
             for _ in 0..coords_to_fill {
                 full_witness[vector_idx].push(PolyRingElem::zero());
             }
 
-            // each vector in the decomposition of input_wit.vectors[i] is
-            // filled with zeros
+            // each vector (except the first) in the decomposition of
+            // input_wit.vectors[i] is filled with zeros
             for _ in 0..vectors_to_fill {
                 full_witness.push(vec![PolyRingElem::zero(); output_stat.dim]);
             }
 
-            if proof.tail {
-                output_stat.commitments.u1.append(&mut commit_tail(
-                    &full_witness,
-                    commit_key,
+            match output_stat.commitments {
+                Commitments::Tail { ref mut inner, .. } => {
+                    commit_tail(inner, &full_witness[vector_idx..], commit_key)
+                }
+                Commitments::NoTail {
+                    ref mut inner,
+                    ref mut u1,
+                    ..
+                } => commit_no_tail(
+                    u1,
+                    inner,
+                    &mut full_witness[vector_idx..],
+                    &commit_key,
                     com_params,
-                ))
-            } else {
-                out_vec.append(&mut commit_no_tail(&full_witness, commit_key, com_params))
+                ),
             }
 
             // update vector index: filled exactly wit_length[i] vectors
@@ -199,10 +271,102 @@ pub fn commit(
             coord_idx = 0;
         }
     }
-    // TODO: quadratic garbage
-    // TODO: copy u1 from output_stat to proof
-    // TODO: bitpack output_stat.hash, shake128
 
-    // FIXME
-    Vec::new()
+    // second step: handle garbage
+    if com_params.quadratic_length != 0 {
+        // compute quadratic garbage < s_i, s_j >
+        let mut quad_inner: Vec<Vec<PolyRingElem>> = Vec::new();
+        for i in 0..output_stat.r {
+            quad_inner.push(vec![PolyRingElem::zero(); output_stat.r]);
+            for j in 0..=i {
+                for k in 0..output_stat.dim {
+                    quad_inner[i][j] += &full_witness[i][k] * &full_witness[j][k];
+                }
+            }
+        }
+
+        match output_stat.commitments {
+            Commitments::Tail {
+                inner: _,
+                ref mut garbage,
+            } => {
+                // tail: append the quadratic garbage to commitments.garbage
+                for mut garbage_vec in quad_inner.drain(..) {
+                    garbage.append(&mut garbage_vec);
+                }
+            }
+            Commitments::NoTail {
+                inner: _,
+                ref mut u1,
+                u2: _,
+            } => {
+                // no tail:
+                // - decompose quad_inner,
+                // - apply matrices_c, update u1
+                // - append quad_inner to output_wit.vectors
+
+                let CommitKeyData::NoTail {
+                    matrix_a: _,
+                    matrices_b: _,
+                    ref matrices_c,
+                    matrices_d: _,
+                } = commit_key.data
+                else {
+                    panic!("commit key data is `Tail` but commitments are `NoTail`");
+                };
+
+                // decomp_inner[i][k][j]: level k of < s_i, s_j >
+                let decomp_inner: Vec<Vec<Vec<PolyRingElem>>> = quad_inner
+                    .iter()
+                    .map(|line| poly_vec_decomp(line, com_params.quadratic_base))
+                    .collect();
+
+                for (levels_matrices, mut levels_inner) in
+                    matrices_c.iter().zip(decomp_inner.into_iter())
+                {
+                    for (level_matrix, level_inner) in
+                        levels_matrices.iter().zip(levels_inner.iter())
+                    {
+                        // update u1
+                        level_matrix.add_apply(u1, &level_inner);
+                    }
+
+                    output_wit.vectors.append(&mut levels_inner);
+                }
+            }
+        }
+    }
+
+    // copy commitments from output_stat to proof
+    proof.commitments = output_stat.commitments.clone();
+
+    let mut hasher = Shake128::default();
+    hasher.update(&output_stat.hash);
+
+    match output_stat.commitments {
+        Commitments::Tail {
+            ref inner,
+            ref garbage,
+        } => {
+            // hash inner and garbage
+            for byte in poly_vec_bytes_iter(inner).chain(poly_vec_bytes_iter(garbage)) {
+                hasher.update(&[byte]);
+            }
+        }
+        Commitments::NoTail {
+            inner: _,
+            ref u1,
+            u2: _,
+        } => {
+            // hash u1
+            for byte in poly_vec_bytes_iter(u1) {
+                hasher.update(&[byte]);
+            }
+        }
+    }
+
+    let mut reader = hasher.finalize_xof();
+
+    // store hash in output_hash
+    reader.read(&mut output_stat.hash);
 }

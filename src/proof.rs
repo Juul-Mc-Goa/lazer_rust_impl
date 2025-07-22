@@ -1,5 +1,5 @@
 use crate::{
-    commit::{CommitParams, OuterCommit},
+    commit::{CommitParams, Commitments},
     constants::{CHALLENGE_NORM, DEGREE, LOG_DELTA, LOG_PRIME, SLACK, TAU1, TAU2},
     ring::{BaseRingElem, PolyRingElem},
     witness::Witness,
@@ -15,7 +15,7 @@ pub struct Proof {
     /// does this proof have to be proven as is ? or reduced further ?
     pub tail: bool,
     pub commit_params: CommitParams,
-    pub outer_commits: OuterCommit,
+    pub commitments: Commitments,
     pub jl_nonce: u128,
     pub projection: [BaseRingElem; 256],
     /// A_q -> Z_q lifting polynomials
@@ -431,12 +431,6 @@ impl Proof {
             u2_len,
         };
 
-        // initialize commitment vectors
-        let outer_commits = OuterCommit {
-            u1: Vec::new(),
-            u2: Vec::new(),
-        };
-
         // FIXME: lifting_poly ?
         Self {
             r,
@@ -444,7 +438,7 @@ impl Proof {
             wit_length: new_wit_length,
             tail: is_tail,
             commit_params,
-            outer_commits,
+            commitments: Commitments::new(is_tail),
             jl_nonce: 0,
             projection: [0.into(); 256],
             lifting_poly: Vec::new(),
