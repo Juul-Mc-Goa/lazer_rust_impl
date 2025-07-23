@@ -79,15 +79,16 @@ pub fn project(statement: &mut Statement, proof: &mut Proof, wit: Witness) {
     let hashbuf_right = hashbuf_chunks[1];
 
     proof.jl_nonce = 0;
-    let mut jl_matrices: Vec<Vec<u8>> = Vec::new();
     let (mut projection_too_big, mut coef_too_big) = (true, true);
 
     while projection_too_big || coef_too_big {
+        let mut jl_matrices: Vec<Vec<u8>> = Vec::new();
         let mut cipher =
             Aes128Ctr64LE::new(&hashbuf_right.into(), &proof.jl_nonce.to_le_bytes().into());
         proof.projection.fill(BaseRingElem::zero());
 
         for i in 0..wit.r {
+            // 1 bit per (in, out) coordinate
             // input: wit.dim[i] * DEGREE coordinates
             // output: 256 coordinates
             let jl_bytes = wit.dim[i] * DEGREE as usize * 256 / 8;
@@ -134,101 +135,4 @@ pub fn project(statement: &mut Statement, proof: &mut Proof, wit: Witness) {
 
     // store hash in statement.hash
     reader.read(&mut statement.hash);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::ring::PolyRingElem;
-
-    #[test]
-    fn trivial_jl_mat() {
-        let mut projection = [BaseRingElem::from(0); 256];
-        let in_dim = 4;
-
-        let mut in_vec = PolyVec::zero(in_dim);
-        in_vec.0[0] = PolyRingElem::one();
-        in_vec.0[1] = PolyRingElem::one();
-
-        let jl_bytes = in_dim * DEGREE as usize * 256 / 8;
-        let jl_matrix = vec![0_u8; jl_bytes];
-
-        add_apply_jl_matrix(&mut projection, &in_vec, &jl_matrix);
-
-        assert_eq!(projection, [2.into(); 256])
-    }
-
-    #[test]
-    fn jl_mat_sub_coef() {
-        let mut projection = [BaseRingElem::from(0); 256];
-
-        let in_dim = 4;
-        let mut in_vec = PolyVec::zero(in_dim);
-
-        let mut first_poly = vec![0_u64; DEGREE as usize];
-        first_poly[0] = 1;
-        first_poly[1] = 1;
-        in_vec.0[0] = PolyRingElem::from_vec_u64(first_poly);
-
-        let jl_bytes = in_dim * DEGREE as usize * 256 / 8;
-        let mut jl_matrix = vec![0_u8; jl_bytes];
-        // each 8-byte (64-bit) block is dedicated to one coordinate of
-        // projection and one coordinate of in_vec
-        jl_matrix[0] = 3;
-
-        add_apply_jl_matrix(&mut projection, &in_vec, &jl_matrix);
-
-        assert_eq!(projection[0], -BaseRingElem::from(2));
-        for c in projection[1..].iter() {
-            assert_eq!(c, &BaseRingElem::from(2))
-        }
-    }
-
-    #[test]
-    fn jl_mat_out_coord() {
-        let mut projection = [BaseRingElem::from(0); 256];
-
-        let in_dim = 4;
-        let mut in_vec = PolyVec::zero(in_dim);
-        in_vec.0[0] = PolyRingElem::one();
-        in_vec.0[1] = PolyRingElem::one();
-
-        let jl_bytes = in_dim * DEGREE as usize * 256 / 8;
-        let mut jl_matrix = vec![0_u8; jl_bytes];
-        // each 8-byte (64-bit) block is dedicated to one coordinate of
-        // projection and one coordinate of in_vec
-        jl_matrix[0] = 1;
-        jl_matrix[8] = 1;
-
-        add_apply_jl_matrix(&mut projection, &in_vec, &jl_matrix);
-
-        assert_eq!(projection[0], BaseRingElem::from(0));
-        assert_eq!(projection[1], BaseRingElem::from(0));
-        for c in projection[2..].iter() {
-            assert_eq!(c, &BaseRingElem::from(2))
-        }
-    }
-
-    #[test]
-    fn jl_mat_sub_vectors() {
-        let mut projection = [BaseRingElem::from(0); 256];
-        let in_dim = 4;
-        let mut in_vec = PolyVec::zero(in_dim);
-        in_vec.0[0] = PolyRingElem::one();
-        in_vec.0[1] = PolyRingElem::one();
-
-        let jl_bytes = in_dim * DEGREE as usize * 256 / 8;
-        let mut jl_matrix = vec![0_u8; jl_bytes];
-        // each 2048-byte (= 16348 bits = 256 * 64 bits) block is dedicated to
-        // one coordinate in in_vec
-        jl_matrix[0] = 1;
-        jl_matrix[2048] = 1;
-
-        add_apply_jl_matrix(&mut projection, &in_vec, &jl_matrix);
-
-        assert_eq!(projection[0], -BaseRingElem::from(2));
-        for c in projection[1..].iter() {
-            assert_eq!(c, &BaseRingElem::from(2))
-        }
-    }
 }

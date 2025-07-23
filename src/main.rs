@@ -5,6 +5,7 @@ mod constants;
 mod utils;
 
 mod constraint;
+mod jl_matrix;
 mod linear_algebra;
 mod proof;
 mod ring;
