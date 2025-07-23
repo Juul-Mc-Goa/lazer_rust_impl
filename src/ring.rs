@@ -141,32 +141,15 @@ impl PolyRingElem {
 
         coefs.iter().map(|v| Self::from_slice_u64(v)).collect()
     }
-}
 
-#[allow(dead_code)]
-pub fn poly_vec_decomp(vec: &[PolyRingElem], d: usize) -> Vec<Vec<PolyRingElem>> {
-    let length = (LOG_PRIME as usize).div_ceil(d);
-    let mut result: Vec<Vec<PolyRingElem>> = vec![Vec::new(); length];
+    /// Apply the ring automorphism defined by `sigma(X) = X^{-1}` to the polynomial.
+    pub fn invert_x(&self) -> Self {
+        let mut rev: Vec<BaseRingElem> = self.element[1..].to_vec();
+        rev.push(self.element[0]);
+        rev.reverse();
 
-    for poly in vec {
-        for (i, small_poly) in poly.decompose(d).into_iter().enumerate() {
-            result[i].push(small_poly)
-        }
+        Self { element: rev }
     }
-
-    result
-}
-
-#[allow(dead_code)]
-pub fn poly_vec_bytes_iter(vec: &[PolyRingElem]) -> impl Iterator<Item = u8> {
-    vec.iter()
-        .map(|pol| {
-            pol.element
-                .iter()
-                .map(|base_elem| base_elem.element.to_le_bytes())
-                .flatten()
-        })
-        .flatten()
 }
 
 /*******************************************************************************

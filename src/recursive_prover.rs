@@ -1,4 +1,4 @@
-use crate::{constraint::Constraint, matrices::PolyMatrix, ring::PolyRingElem};
+use crate::{constraint::Constraint, linear_algebra::PolyMatrix, ring::PolyRingElem};
 
 #[allow(dead_code)]
 pub struct RecursiveProver {

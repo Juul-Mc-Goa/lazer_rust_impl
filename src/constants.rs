@@ -2,6 +2,7 @@
 pub const PRIME: u64 = (1 << 40) - 195;
 #[allow(dead_code)]
 pub const LOG_PRIME: u64 = 40;
+pub const PRIME_BYTES_LEN: usize = (LOG_PRIME as usize) >> 3;
 
 /// the degree `d` defining `R_q = (Z/qZ)[X] / (X^d + 1)`
 pub const DEGREE: u64 = 64;

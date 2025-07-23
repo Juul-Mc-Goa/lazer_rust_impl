@@ -3,7 +3,7 @@ use crate::{
     constraint::Constraint,
     proof::Proof,
     ring::PolyRingElem,
-    witness::next_2_power,
+    utils::next_2_power,
 };
 
 #[allow(dead_code)]
