@@ -370,3 +370,47 @@ pub fn commit(
     // store hash in output_hash
     reader.read(&mut output_stat.hash);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn commit_tail_simple_a() {
+        let dim = 3;
+        let r = 4;
+        let com_rank_1 = 3;
+        // create a bidiagonal matrix
+        let matrix_a: PolyMatrix = PolyMatrix(
+            (0..com_rank_1)
+                .map(|i| {
+                    let mut line = vec![PolyRingElem::zero(); dim];
+                    line[i] = PolyRingElem::one();
+                    line[(i + 1) % dim] = PolyRingElem::one();
+                    line
+                })
+                .collect(),
+        );
+
+        // generate random witness
+        let mut seed: <ChaCha8Rng as SeedableRng>::Seed = Default::default();
+        rand::rng().fill(&mut seed);
+        let mut rng = ChaCha8Rng::from_seed(seed);
+        let witness: Vec<PolyVec> = (0..r).map(|_| PolyVec::random(dim, &mut rng)).collect();
+
+        let mut expected_result: Vec<PolyVec> = vec![PolyVec::zero(com_rank_1); dim];
+
+        for i in 0..dim {
+            for j in 0..com_rank_1 {
+                expected_result[i].0[j] = &witness[i].0[j] + &witness[i].0[(j + 1) % dim];
+            }
+        }
+
+        let mut inner = PolyVec::new();
+        commit_tail(&mut inner, &witness, &matrix_a);
+
+        for (chunk, res) in inner.0.chunks_exact(com_rank_1).zip(expected_result.iter()) {
+            assert_eq!(chunk, res.0)
+        }
+    }
+}
