@@ -1,7 +1,7 @@
 use rand::Rng;
 use rand_chacha::ChaCha8Rng;
 
-use crate::constants::{DEGREE, LOG_PRIME, PRIME};
+use crate::constants::{DEGREE, LOG_PRIME, PRIME, PRIME_BYTES_LEN};
 use std::fmt::{Debug, Formatter};
 use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 
@@ -46,6 +46,15 @@ impl Debug for BaseRingElem {
     }
 }
 
+impl From<BaseRingElem> for PolyRingElem {
+    fn from(value: BaseRingElem) -> Self {
+        let mut new = PolyRingElem::zero();
+        new.element[0] = value;
+
+        new
+    }
+}
+
 impl BaseRingElem {
     /// Generate 0 mod `PRIME`.
     pub fn zero() -> Self {
@@ -61,6 +70,13 @@ impl BaseRingElem {
         BaseRingElem {
             element: rng.random_range(0..PRIME),
         }
+    }
+
+    /// Convert a `BaseRingElem` into a `Vec<u8>` (least-endian)
+    /// of size `PRIME_BYTES_LEN`.
+    pub fn to_le_bytes(&self) -> Vec<u8> {
+        let start_idx: usize = 8 - PRIME_BYTES_LEN;
+        self.element.to_le_bytes()[start_idx..].to_vec()
     }
 }
 
@@ -116,6 +132,16 @@ impl PolyRingElem {
         }
     }
 
+    pub fn to_le_bytes(&self) -> Vec<u8> {
+        let mut result: Vec<u8> = Vec::new();
+
+        for poly in &self.element {
+            result.append(&mut poly.to_le_bytes());
+        }
+
+        result
+    }
+
     /// Generate an uniformly random polynomial from a given RNG.
     pub fn random(rng: &mut ChaCha8Rng) -> Self {
         Self {
@@ -149,6 +175,15 @@ impl PolyRingElem {
         rev.reverse();
 
         Self { element: rev }
+    }
+
+    /// Apply the ring automorphism defined by `sigma(X) = X^{-1}` to the polynomial.
+    pub fn mut_invert_x(&mut self) {
+        let mut rev: Vec<BaseRingElem> = self.element[1..].to_vec();
+        rev.push(self.element[0]);
+        rev.reverse();
+
+        self.element = rev;
     }
 }
 
