@@ -14,9 +14,13 @@ pub struct Proof {
     pub wit_length: Vec<usize>,
     /// does this proof have to be proven as is ? or reduced further ?
     pub tail: bool,
+    /// Commitment parameters.
     pub commit_params: CommitParams,
+    /// Commitments vectors.
     pub commitments: Commitments,
+    /// Nonce used for generating the JL matrix.
     pub jl_nonce: u128,
+    /// The vector obtained by applying the JL matrix to the witness.
     pub projection: [BaseRingElem; 256],
     /// A_q -> Z_q lifting polynomials
     pub lifting_poly: Vec<PolyRingElem>,
@@ -431,7 +435,7 @@ impl Proof {
             u2_len,
         };
 
-        // FIXME: lifting_poly ?
+        // REVIEW: lifting_poly ?
         Self {
             r,
             dim,
