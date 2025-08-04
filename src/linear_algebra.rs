@@ -51,7 +51,7 @@ impl PolyVec {
             .map(|poly| {
                 poly.element
                     .iter()
-                    .map(|base_elem| base_elem.element.to_le_bytes())
+                    .map(|base_elem| base_elem.to_le_bytes())
                     .flatten()
             })
             .flatten()
@@ -70,6 +70,25 @@ impl PolyVec {
 
         Self(vec)
     }
+
+    pub fn mut_invert_x(&mut self) {
+        self.0.iter_mut().for_each(|poly| poly.mut_invert_x());
+    }
+
+    pub fn add_assign(&mut self, other: &Self) {
+        for (coef_self, coef_other) in self.0.iter_mut().zip(other.0.iter()) {
+            *coef_self += coef_other;
+        }
+    }
+
+    /// Update `self`: `self <- self + coef * other`.
+    pub fn add_mul<T: Into<PolyRingElem>>(&mut self, coef: T, other: &Self) {
+        let coef_poly: PolyRingElem = coef.into();
+
+        for (coef_self, coef_other) in self.0.iter_mut().zip(other.0.iter()) {
+            *coef_self += &coef_poly * coef_other;
+        }
+    }
 }
 
 #[allow(dead_code)]
@@ -85,7 +104,7 @@ impl PolyMatrix {
         Self(result)
     }
 
-    /// Compute `output = output + self * input`.
+    /// Update `output <- output + self * input`.
     pub fn add_apply_raw(&self, output: &mut [PolyRingElem], input: &[PolyRingElem]) {
         if input.len() != self.0[0].len() {
             panic!(
@@ -116,13 +135,20 @@ impl PolyMatrix {
         output
     }
 
-    /// Compute `output = output + self * input`.
+    /// Update `output <- output + self * input`.
     pub fn add_apply(&self, output: &mut PolyVec, input: &PolyVec) {
         self.add_apply_raw(&mut output.0, &input.0);
     }
 
+    /// Compute `self * input`.
     pub fn apply(&self, input: &PolyVec) -> PolyVec {
         PolyVec(self.apply_raw(&input.0))
+    }
+}
+
+impl SparsePolyMatrix {
+    pub fn new() -> Self {
+        Self(Vec::new())
     }
 }
 
