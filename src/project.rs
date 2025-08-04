@@ -2,7 +2,8 @@
 //! ([`add_apply_jl_matrix`]), and the [`project`] function, which generates a
 //! random JL matrix and applies it to the witness.
 use crate::{
-    constants::{DEGREE, JL_MAX_NORM_SQ},
+    constants::JL_MAX_NORM_SQ,
+    jl_matrix::JLMatrix,
     linear_algebra::PolyVec,
     proof::Proof,
     ring::BaseRingElem,
@@ -10,7 +11,7 @@ use crate::{
     utils::{Aes128Ctr64LE, next_2_power},
     witness::Witness,
 };
-use aes::cipher::{KeyIvInit, StreamCipher};
+use aes::cipher::KeyIvInit;
 use sha3::{
     Shake128,
     digest::{ExtendableOutput, Update, XofReader},
@@ -48,16 +49,15 @@ pub fn add_apply_jl_matrix(
 /// mode, store the nonce in `proof.jl_nonce`.  Hash the resulting vector and
 /// store it in `statement.hash`.
 #[allow(dead_code)]
-pub fn project(statement: &mut Statement, proof: &mut Proof, wit: Witness) {
+pub fn project(statement: &mut Statement, proof: &mut Proof, wit: Witness) -> Vec<JLMatrix> {
     // compute total norm_square for witness
     let norm_square: u128 = wit.norm_square.iter().map(|x| *x as u128).sum();
 
     if norm_square > JL_MAX_NORM_SQ {
-        eprintln!(
+        panic!(
             "Total witness squared norm ({norm_square}) bigger than bound
                    ({JL_MAX_NORM_SQ})"
         );
-        return;
     }
 
     let max_proj_coord = next_2_power(4 * norm_square.isqrt() as u64);
@@ -81,24 +81,18 @@ pub fn project(statement: &mut Statement, proof: &mut Proof, wit: Witness) {
     proof.jl_nonce = 0;
     let (mut projection_too_big, mut coef_too_big) = (true, true);
 
+    let mut jl_matrices: Vec<JLMatrix> = Vec::new();
+
     while projection_too_big || coef_too_big {
-        let mut jl_matrices: Vec<Vec<u8>> = Vec::new();
+        jl_matrices = Vec::new();
         let mut cipher =
             Aes128Ctr64LE::new(&hashbuf_right.into(), &proof.jl_nonce.to_le_bytes().into());
         proof.projection.fill(BaseRingElem::zero());
 
         for i in 0..wit.r {
-            // 1 bit per (in, out) coordinate
-            // input: wit.dim[i] * DEGREE coordinates
-            // output: 256 coordinates
-            let jl_bytes = wit.dim[i] * DEGREE as usize * 256 / 8;
-            let mut jl_matrix = vec![0_u8; jl_bytes];
+            let jl_matrix = JLMatrix::random(wit.dim[i], &mut cipher);
 
-            // generate jl_matrix
-            cipher.apply_keystream(&mut jl_matrix);
-
-            // apply the matrix to witness.vectors
-            add_apply_jl_matrix(&mut proof.projection, &wit.vectors[i], &jl_matrix);
+            jl_matrix.add_apply(&mut proof.projection, &wit.vectors[i]);
             jl_matrices.push(jl_matrix);
         }
 
@@ -135,4 +129,6 @@ pub fn project(statement: &mut Statement, proof: &mut Proof, wit: Witness) {
 
     // store hash in statement.hash
     reader.read(&mut statement.hash);
+
+    jl_matrices
 }
