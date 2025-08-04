@@ -1,42 +1,84 @@
 use crate::{
-    constants::PRIME_BYTES_LEN,
-    constraint::{Constraint, unpack_challenges},
-    ring::BaseRingElem,
+    constants::{PRIME_BYTES_LEN, U128_LEN},
+    constraint::{Constraint, aggregate_constraints, unpack_challenges},
+    jl_matrix::JLMatrix,
+    proof::Proof,
+    ring::{BaseRingElem, PolyRingElem},
+    statement::Statement,
+    witness::Witness,
 };
 
+use rand::SeedableRng;
+use rand_chacha::ChaCha8Rng;
 use sha3::{
     Shake128,
     digest::{ExtendableOutput, Update, XofReader},
 };
 
-// TODO: collapse JL ..., lift Z_q -> R_q
-
 #[allow(dead_code)]
-pub fn collaps_jl_proj_raw(
-    constraint: &mut Constraint,
-    r: usize,
+pub fn aggregate_constant_coeff(
+    output_stat: &mut Statement,
+    proof: &mut Proof,
+    witness: &Witness,
     dim: usize,
-    hash: &mut [u8; 16],
-    projection: &[BaseRingElem; 256],
-    jl_matrix: &Vec<u8>,
+    jl_matrices: &[JLMatrix],
 ) {
-    let mut hasher = Shake128::default();
-    hasher.update(hash);
-    let mut reader = hasher.finalize_xof();
-
     // REVIEW: hashbuf length
     // hashbuf: 32 bytes, then challenges (256 BaseRingElem), then ???
     let mut hashbuf = [0_u8; 32 + PRIME_BYTES_LEN * 256 + 24];
-    reader.read(&mut hashbuf);
-    // update hash
-    hash.copy_from_slice(&hashbuf[..16]);
 
-    let challenges = &hashbuf[32..];
-    let alpha = unpack_challenges(challenges);
-    // TODO: polxvec_jlproj_collapsmat: build constraint.linear_part from jl_matrix and challenges
-    //   1. pack jl_matrix as a vector of `rows: PolyVec`
-    //   2. apply PolyVec::invert_x
-    //   3. compute < rows[i], witness >
-    //   4. compute sum, weighted by the challenges
-    // TODO: jlproj_collapsproj: build constraint.constant from challenges ?
+    // `constraints` contains 256 constraints: one per output coordinate
+    let constraints = Constraint::from_jl_proj(jl_matrices, &witness.vectors, witness.r);
+
+    for _ in 0..U128_LEN {
+        // collaps_jlproj_raw:
+        // - hashbuf <- shake128(output_stat.hash)
+        // - output_stat.hash <- hashbuf[..16]
+        // - use hashbuf[32..] to generate A_q challenges
+        // - use challenges to generate constraint
+        let mut hasher = Shake128::default();
+        hasher.update(&output_stat.hash);
+        let mut reader = hasher.finalize_xof();
+
+        reader.read(&mut hashbuf);
+        // update hash
+        output_stat.hash.copy_from_slice(&hashbuf[..16]);
+
+        let challenges: [BaseRingElem; 256] = unpack_challenges(&hashbuf[32..]);
+        let constraint = aggregate_constraints(dim, witness.r, &constraints, &challenges);
+
+        // copy constant to proof.lifting_poly
+        proof.lifting_poly.push(constraint.constant.clone());
+
+        // lift aggregate Z_q cnst:
+        // - new_hash <- shake128(output_stat.hash || constraint.constant)
+        // - output_stat.hash <- new_hash[..16]
+        // - generate alpha: PolyRingElem
+        // - multiply all data in `constraint` by alpha
+        // - add the result to output_stat.constraint
+        hasher = Shake128::default();
+
+        hasher.update(&output_stat.hash); // digest `hash`
+        hasher.update(&constraint.constant.to_le_bytes()); // digest constant
+
+        let mut new_hash = [0_u8; 32];
+        reader.read(&mut new_hash);
+        // update output_stat.hash
+        output_stat.hash.copy_from_slice(&new_hash[..16]);
+
+        // use new_hash to generate alpha
+        let mut rng = ChaCha8Rng::from_seed(new_hash);
+        let alpha: PolyRingElem = PolyRingElem::random(&mut rng);
+
+        // update output_stat.constraint
+        for (stat_vec, cons_vec) in output_stat
+            .constraint
+            .linear_part
+            .iter_mut()
+            .zip(constraint.linear_part)
+        {
+            stat_vec.add_mul(alpha.clone(), &cons_vec);
+        }
+        output_stat.constraint.constant += &alpha * constraint.constant;
+    }
 }
