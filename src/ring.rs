@@ -1,7 +1,7 @@
 use rand::Rng;
 use rand_chacha::ChaCha8Rng;
 
-use crate::constants::{DEGREE, LOG_PRIME, PRIME, PRIME_BYTES_LEN};
+use crate::constants::{DEGREE, LOG_PRIME, ONE_HALF_MOD_PRIME, PRIME, PRIME_BYTES_LEN};
 use std::fmt::{Debug, Formatter};
 use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 
@@ -78,6 +78,12 @@ impl BaseRingElem {
         let start_idx: usize = 8 - PRIME_BYTES_LEN;
         self.element.to_le_bytes()[start_idx..].to_vec()
     }
+
+    /// Divide by `2` modulo `p`.
+    pub fn halve(&self) -> Self {
+        let one_half: BaseRingElem = ONE_HALF_MOD_PRIME.into();
+        self * one_half
+    }
 }
 
 impl PolyRingElem {
@@ -94,6 +100,13 @@ impl PolyRingElem {
         element[0] = BaseRingElem::one();
 
         PolyRingElem { element }
+    }
+
+    /// Divide by `2` modulo `p`.
+    pub fn halve(&self) -> Self {
+        Self {
+            element: self.element.iter().map(|c| c.halve()).collect(),
+        }
     }
 
     /// Multiply the polynomial by `X^exp`, in the ring where `X^DEGREE + 1 = 0`.
@@ -132,6 +145,7 @@ impl PolyRingElem {
         }
     }
 
+    /// Convert a `PolyRingElem` to a vector of bytes.
     pub fn to_le_bytes(&self) -> Vec<u8> {
         let mut result: Vec<u8> = Vec::new();
 
