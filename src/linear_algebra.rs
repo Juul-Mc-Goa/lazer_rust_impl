@@ -44,6 +44,11 @@ impl PolyVec {
         result
     }
 
+    /// Concatenate two `PolyVec`s: `self <- self || other`.
+    pub fn concat(&mut self, other: &mut PolyVec) {
+        self.0.append(&mut other.0);
+    }
+
     /// See a `PolyVec` as an array of `u8`, return an iterator over such an array.
     pub fn iter_bytes(&self) -> impl Iterator<Item = u8> {
         self.0
@@ -61,6 +66,7 @@ impl PolyVec {
         Self(vec![PolyRingElem::zero(); dim])
     }
 
+    /// Generate an uniformly random `PolyVec` from a given RNG.
     pub fn random(dim: usize, rng: &mut ChaCha8Rng) -> Self {
         let mut vec: Vec<PolyRingElem> = Vec::new();
 
