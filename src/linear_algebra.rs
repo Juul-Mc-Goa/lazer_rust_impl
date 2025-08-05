@@ -128,6 +128,7 @@ impl PolyMatrix {
         }
     }
 
+    /// Compute `self * input`.
     pub fn apply_raw(&self, input: &[PolyRingElem]) -> Vec<PolyRingElem> {
         let mut output = vec![PolyRingElem::zero(); self.0.len()];
         self.add_apply_raw(&mut output, input);
@@ -143,6 +144,32 @@ impl PolyMatrix {
     /// Compute `self * input`.
     pub fn apply(&self, input: &PolyVec) -> PolyVec {
         PolyVec(self.apply_raw(&input.0))
+    }
+
+    /// Compute `transpose(self) * input`.
+    pub fn apply_transpose_raw(&self, input: &[PolyRingElem]) -> Vec<PolyRingElem> {
+        let (height, width) = (self.0.len(), self.0[0].len());
+        let mut result = vec![PolyRingElem::zero(); width];
+
+        if input.len() != height {
+            panic!(
+                "Apply transpose: matrix of size ({height}, {width}), vector of size {}",
+                input.len()
+            );
+        }
+
+        for (coef, line) in input.iter().zip(self.0.iter()) {
+            for (result_coord, input_coord) in result.iter_mut().zip(line.iter()) {
+                *result_coord += coef * input_coord;
+            }
+        }
+
+        result
+    }
+
+    /// Compute `transpose(self) * input`.
+    pub fn apply_transpose(&self, input: &PolyVec) -> PolyVec {
+        PolyVec(self.apply_transpose_raw(&input.0))
     }
 }
 
