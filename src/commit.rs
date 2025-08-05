@@ -59,7 +59,7 @@ pub enum CommitKeyData {
 pub struct CommitKey {
     /// The matrices used for commiting.
     pub data: CommitKeyData,
-    /// Seed used to generate `self.data`
+    /// Seed used to generate `self.data`.
     pub seed: <ChaCha8Rng as SeedableRng>::Seed,
 }
 
