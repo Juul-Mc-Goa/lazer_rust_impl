@@ -182,18 +182,9 @@ impl PolyRingElem {
         coefs.iter().map(|v| Self::from_slice_u64(v)).collect()
     }
 
-    /// Apply the ring automorphism defined by `sigma(X) = X^{-1}` to the polynomial.
-    pub fn invert_x(&self) -> Self {
-        let mut rev: Vec<BaseRingElem> = self.element[1..].to_vec();
-        rev.push(self.element[0]);
-        rev.reverse();
-
-        Self { element: rev }
-    }
-
-    /// Apply the ring automorphism defined by `sigma(X) = X^{-1}` to the polynomial.
-    pub fn mut_invert_x(&mut self) {
-        let mut rev: Vec<BaseRingElem> = self.element[1..].to_vec();
+    /// Apply the ring automorphism defined by `sigma(X) = X^{-1} = -X^{d-1}` to the polynomial.
+    pub fn invert_x(&mut self) {
+        let mut rev: Vec<BaseRingElem> = self.element[1..].iter().map(|c| -*c).collect();
         rev.push(self.element[0]);
         rev.reverse();
 

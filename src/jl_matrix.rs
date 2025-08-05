@@ -101,7 +101,7 @@ impl JLMatrix {
         let mut result = self.as_polyvecs();
 
         for v in result.as_mut_slice() {
-            v.mut_invert_x();
+            v.invert_x();
         }
 
         result

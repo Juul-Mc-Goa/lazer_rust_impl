@@ -77,8 +77,8 @@ impl PolyVec {
         Self(vec)
     }
 
-    pub fn mut_invert_x(&mut self) {
-        self.0.iter_mut().for_each(|poly| poly.mut_invert_x());
+    pub fn invert_x(&mut self) {
+        self.0.iter_mut().for_each(|poly| poly.invert_x());
     }
 
     pub fn add_assign(&mut self, other: &Self) {
