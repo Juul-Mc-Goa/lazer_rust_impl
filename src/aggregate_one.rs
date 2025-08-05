@@ -34,7 +34,7 @@ pub fn aggregate_constant_coeff(
         // collaps_jlproj_raw:
         // - hashbuf <- shake128(output_stat.hash)
         // - output_stat.hash <- hashbuf[..16]
-        // - use hashbuf[32..] to generate A_q challenges
+        // - use hashbuf[32..] to generate A_p challenges
         // - use challenges to generate constraint
         let mut hasher = Shake128::default();
         hasher.update(&output_stat.hash);
@@ -50,7 +50,7 @@ pub fn aggregate_constant_coeff(
         // copy constant to proof.lifting_poly
         proof.lifting_poly.push(constraint.constant.clone());
 
-        // lift aggregate Z_q cnst:
+        // lift aggregate A_p cnst:
         // - new_hash <- shake128(output_stat.hash || constraint.constant)
         // - output_stat.hash <- new_hash[..16]
         // - generate alpha: PolyRingElem

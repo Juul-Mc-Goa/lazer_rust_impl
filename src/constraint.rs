@@ -5,14 +5,15 @@ use crate::{
     ring::{BaseRingElem, PolyRingElem},
 };
 
-/// A degree 2 polynomial in the `r` witness vectors s_1, ..., s_r in R_q^n:
-///
-/// sum(a_{i,j} <s_i, s_j>) + sum(<b_i, s_i>) + c
-///
+/// A degree 2 polynomial equation in the `r` witness vectors s_1, ..., s_r in
+/// R_p^n:
+/// ```
+/// sum(a_{i,j} <s_i, s_j>) + sum(<b_i, s_i>) + c = 0
+/// ```
 /// Here:
-/// * a_{i,j} is in R_q
-/// * b_i is in R_q^n
-/// * c is in R_q
+/// * a_{i,j} is in R_p
+/// * b_i is in R_p^n
+/// * c is in R_p
 #[allow(dead_code)]
 pub struct Constraint {
     pub degree: usize,

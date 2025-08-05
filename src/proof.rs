@@ -7,12 +7,13 @@ use crate::{
 
 #[allow(dead_code)]
 pub struct Proof {
+    /// Number of vectors inside the witness.
     pub r: usize,
-    /// witness dimensions
+    /// Witness dimensions.
     pub dim: Vec<usize>,
-    /// decomposition parts
+    /// Decomposition parts.
     pub wit_length: Vec<usize>,
-    /// does this proof have to be proven as is ? or reduced further ?
+    /// `true` if this proof should not be recursively reduced further.
     pub tail: bool,
     /// Commitment parameters.
     pub commit_params: CommitParams,
@@ -22,7 +23,7 @@ pub struct Proof {
     pub jl_nonce: u128,
     /// The vector obtained by applying the JL matrix to the witness.
     pub projection: [BaseRingElem; 256],
-    /// A_q -> Z_q lifting polynomials
+    /// A_p -> R_p lifting polynomials
     pub lifting_poly: Vec<PolyRingElem>,
     pub norm_square: u128,
 }
@@ -54,7 +55,7 @@ fn z_decompose(
     // compute l2 square of witness
     let mut varz: u128 = norm_square.iter().sum();
     // compute average l2 square of decomposed vectors
-    // then average from R_q to A_q ?
+    // then average from R_p to A_p ?
     varz /= decomp_dim as u128 * DEGREE as u128;
     varz *= TAU1 + 4 * TAU2;
 
@@ -289,7 +290,7 @@ impl Proof {
                 norm_square[i] = witness.norm_square[i];
                 norm_square[witness.r + 1 + i] = (TAU1 + 4 * TAU2) * witness.norm_square[i];
             }
-            // A_q to R_q liftings
+            // A_p to R_p liftings
             dim[witness.r] = (LOG_PRIME as f64 / 10.0).ceil() as usize * witness.r;
             norm_square[witness.r] = (dim[witness.r] as u64 * DEGREE * (1 << 20) / 12) as u128;
 

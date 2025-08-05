@@ -77,6 +77,8 @@ impl Statement {
         // let mut len = r * extlen(unif_len * com_rank1, com_rank2);
         // len += quad_len * r * (r + 1) / 2;
         // len = len.max(unif_len * r * (r + 1) / 2).max(max_dim);
+        //
+        // END of legacy code
 
         (
             Self {

@@ -8,10 +8,10 @@ pub struct RecursiveProver {
     pub r: usize,
     /// The witnesses: a (r,n) matrix, coefficients in `PolyRing`
     pub witnesses: PolyMatrix,
-    /// List of degree 2 polynomials over `R_q` that should equal zero when
+    /// List of degree 2 polynomials over `R_p` that should equal zero when
     /// evaluated on the witnesses
     pub zero_constraints: Vec<Constraint>,
-    /// List of degree 2 polynomials over `R_q` that should have zero constant
+    /// List of degree 2 polynomials over `R_p` that should have zero constant
     /// coefficients when evaluated on the witnesses
     pub coef_constraints: Vec<Constraint>,
     /// The l2 norm bound the witnesses verify
