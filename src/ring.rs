@@ -188,7 +188,7 @@ impl PolyRingElem {
         let mut rev: Vec<BaseRingElem> = self.element[1..]
             .iter()
             .enumerate()
-            .map(|(i, c)| if i + 1 % 2 == 1 { -*c } else { *c })
+            .map(|(i, c)| if (i + 1) % 2 == 1 { -*c } else { *c })
             .collect();
         // apply X -> X^{d-1}
         rev.push(self.element[0]);
