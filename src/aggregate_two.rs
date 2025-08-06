@@ -13,12 +13,13 @@ use crate::{
 
 pub fn aggregate_input_stat(
     output_stat: &mut Statement,
-    proof: &Proof,
+    // proof: &Proof,
     input_stat: &Statement,
     commit_key: &CommitKey,
 ) {
-    // merge input_stat with output_stat
-    // witness <- witness || decomp(t) || decomp(g) || decomp(h)
+    // update output_stat: set
+    // witness <- decomp(z) || decomp(t) || decomp(g) || decomp(h)
+    // and modify output_stat.constraint accordingly
     //
     // t = t_1 || ... || t_r
     // g = g_11 || g_21 || g_22 || ... || g_rr
@@ -46,7 +47,7 @@ pub fn aggregate_input_stat(
     //   1. c_1 of rank com_rank_2 (for u_1)
     //   2. c_2 of rank com_rank_2 (for u_2)
     //   3. c_z of rank com_rank_1 (for z)
-    //   4. c_g of rank 1 (for extra constraint n°1)
+    //   4. c_g of rank 1   (for extra constraint n°1)
     //   5. c_agg of rank 1 (for extra constraint n°3)
 
     let com_params = input_stat.commit_params;

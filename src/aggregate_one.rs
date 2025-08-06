@@ -50,7 +50,7 @@ pub fn aggregate_constant_coeff(
         // copy constant to proof.lifting_poly
         proof.lifting_poly.push(constraint.constant.clone());
 
-        // lift aggregate A_p cnst:
+        // lift_aggregate_zqcnst:
         // - new_hash <- shake128(output_stat.hash || constraint.constant)
         // - output_stat.hash <- new_hash[..16]
         // - generate alpha: PolyRingElem
