@@ -184,7 +184,13 @@ impl PolyRingElem {
 
     /// Apply the ring automorphism defined by `sigma(X) = X^{-1} = -X^{d-1}` to the polynomial.
     pub fn invert_x(&mut self) {
-        let mut rev: Vec<BaseRingElem> = self.element[1..].iter().map(|c| -*c).collect();
+        // apply X -> -X
+        let mut rev: Vec<BaseRingElem> = self.element[1..]
+            .iter()
+            .enumerate()
+            .map(|(i, c)| if i + 1 % 2 == 1 { -*c } else { *c })
+            .collect();
+        // apply X -> X^{d-1}
         rev.push(self.element[0]);
         rev.reverse();
 
