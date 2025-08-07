@@ -16,13 +16,21 @@ use sha3::{
 #[allow(dead_code)]
 #[derive(Copy, Clone)]
 pub struct CommitParams {
+    /// The base in which to decompose `z = sum(i, c_i s_i)`.
     pub z_base: usize,
+    /// The number of limbs `z` have in `z_base`.
     pub z_length: usize,
+    /// The base in which to decompose each `t_i = As_i` and each `h_ij`.
     pub uniform_base: usize,
+    /// The max number of limbs `t_i, h_ij` have in `uniform_base`.
     pub uniform_length: usize,
+    /// The base in which to decompose each `g_ij`.
     pub quadratic_base: usize,
+    /// The max number of limbs `g_ij` have in `quadratic_base`.
     pub quadratic_length: usize,
+    /// The rank of each `t_i` (the inner commitments).
     pub commit_rank_1: usize,
+    /// The rank of `u1, u2` (the outer commitments).
     pub commit_rank_2: usize,
     pub u1_len: usize,
     pub u2_len: usize,
