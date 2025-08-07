@@ -12,7 +12,7 @@ pub struct Proof {
     /// Witness dimensions.
     pub dim: Vec<usize>,
     /// Decomposition parts.
-    pub wit_length: Vec<usize>,
+    pub chunks: Vec<usize>,
     /// `true` if this proof should not be recursively reduced further.
     pub tail: bool,
     /// Commitment parameters.
@@ -40,23 +40,23 @@ pub fn sis_secure(rank: usize, norm: f64) -> bool {
 fn z_decompose(
     k: usize,
     is_tail: bool,
-    wit_length: &Vec<usize>,
-    new_wit_length: &mut Vec<usize>,
+    chunks: &Vec<usize>,
+    new_chunks: &mut Vec<usize>,
     norm_square: &Vec<u128>,
     max_dim: usize,
 ) -> (usize, usize, usize, usize, u128) {
-    let decomp_dim = max_dim.div_ceil(k);
+    let split_dim = max_dim.div_ceil(k);
 
-    // decompose witness as vectors of size decomp_dim
-    *new_wit_length = wit_length.iter().map(|l| l.div_ceil(decomp_dim)).collect();
+    // decompose witness as vectors of size split_dim
+    *new_chunks = chunks.iter().map(|l| l.div_ceil(split_dim)).collect();
 
-    let new_r: usize = new_wit_length.iter().sum();
+    let new_r: usize = new_chunks.iter().sum();
 
     // compute l2 square of witness
     let mut varz: u128 = norm_square.iter().sum();
-    // compute average l2 square of decomposed vectors
+    // compute average l2 square of split vectors
     // then average from R_p to A_p ?
-    varz /= decomp_dim as u128 * DEGREE as u128;
+    varz /= split_dim as u128 * DEGREE as u128;
     varz *= TAU1 + 4 * TAU2;
 
     let mut decompose: bool = !is_tail
@@ -65,9 +65,9 @@ fn z_decompose(
             6.0 * CHALLENGE_NORM as f64
                 * *SLACK
                 * (2.0 * (TAU1 as f64 + 4.0 * TAU2 as f64) * DEGREE as f64).sqrt()
-                * (varz as f64 * decomp_dim as f64),
+                * (varz as f64 * split_dim as f64),
         );
-    // check that average squared norm is less than JL_MAX_NORMSQ ?
+    // check that average squared norm is less than JL_MAX_NORM ?
     decompose |= DEGREE as u128 * varz > (1 << 28);
 
     let twelve_log2 = |i| (12_f64 * i as f64).log2();
@@ -75,7 +75,7 @@ fn z_decompose(
     if decompose {
         // z_base =  log((12 * varz)^1/4)
         (
-            decomp_dim,
+            split_dim,
             2,
             (twelve_log2(varz) / 4.0).round() as usize,
             new_r,
@@ -84,7 +84,7 @@ fn z_decompose(
     } else {
         // z_base = log((12 * varz)^1/2)
         (
-            decomp_dim,
+            split_dim,
             1,
             (twelve_log2(varz) / 2.0).round() as usize,
             new_r,
@@ -100,8 +100,8 @@ fn quad_length_varg(
     norm_square: &Vec<u128>,
     dim: &Vec<usize>,
     z_base: usize,
-    decomp_dim: usize,
-    wit_length: &Vec<usize>,
+    split_dim: usize,
+    chunks: &Vec<usize>,
 ) -> (usize, u128) {
     let mut varg: u128 = 0;
 
@@ -113,35 +113,72 @@ fn quad_length_varg(
         let mut t: usize = 0;
         let mut u = 0;
 
+        // 1. normsquare of a in R_p: l2_sq(a) = sum(d in 0..DEGREE, a_d^2)
+        // 2. normsquare of ab in R_p:
+        //    sum(
+        //      d in 0..DEGREE,
+        //      sum(
+        //        e + f = d (mod DEGREE),
+        //        (+-1) * a_e b_f
+        //      ) ^ 2
+        //    )
+        //
+        //    but (Cauchy-Schwarz):
+        //    sum(
+        //      e + f = d (mod DEGREE),
+        //      (+-1) * a_e b_f
+        //    ) ^ 2 <= l2_sq(a) l2_sq(b)
+        //
+        //    so l2_sq(ab) <= DEGREE l2_sq(a) l2_sq(b)
+        // 3. normsquare of s in R_p^n:
+        //      l2_sq(s) = sum(k in 0..n, l2_sq(s_k))
+        // 4. so if:
+        //      g_ij = < s_i, s_j > = sum(k in 0..n, s_ik s_jk) is in R_p
+        //    then:
+        //      l2(g_ij) <= sum(k, l2(s_ik s_jk))           (triangular inequality)
+        //               <= sqrt(DEGREE) sum(k, l2(s_ik) l2(s_jk))
+        //               <= sqrt(DEGREE) l2(s_i) l2(s_j)    (Cauchy-Schwarz)
+        //    thus:
+        //      l2_sq(g_ij) <= DEGREE l2_sq(s_i) l2_sq(s_j)
+
         // NOTE: the fuck is this ?
         for i in 0..r {
-            // average of coefficients (squared)
-            let vars = norm_square[i] as f64 / (dim[i] as f64 * DEGREE as f64);
-            let mut j = dim[i];
+            // average of witness (squared) coefficients (over A_p)
+            let mean_wit: f64 = norm_square[i] as f64 / (dim[i] as f64 * DEGREE as f64);
+            // quadratic garbage: compute square of `mean_wit`
+            let mean_wit_sq: usize = (mean_wit * mean_wit) as usize;
+            let mut j: usize = dim[i];
 
-            while j >= decomp_dim - u {
-                j -= decomp_dim - u;
-                // t is the average (squared) norm of witness[i][j..]
-                t += (vars * vars) as usize * (decomp_dim - u);
+            while j >= split_dim - u {
+                j -= split_dim - u;
+                // t is the average (squared) norm of witness[i][j..] divided
+                // by DEGREE
+                t += mean_wit_sq * (split_dim - u);
                 varg = varg.max(t as u128);
                 t = 0;
                 u = 0;
             }
 
-            // t is the average (squared) norm of witness[i]
-            t += (vars * vars) as usize * j;
+            // t is the average (squared) norm of witness[i] divided by DEGREE
+            t += mean_wit_sq * j;
             u += j;
 
-            if wit_length[i] != 0 {
+            if chunks[i] != 0 {
                 varg = varg.max(t as u128);
                 t = 0;
                 u = 0;
             }
         }
 
+        // varg is roughly the maximum over i of l2_sq(witness[i])
         varg *= 2 * DEGREE as u128;
-        let quadratic_length =
-            ((12_f64.log2() + (varg as f64).log2()) / (2.0 * z_base as f64)).ceil() as usize;
+        let quadratic_length = {
+            let log12 = 12_f64.log2();
+            let logvarg = (varg as f64).log2();
+            let z_base_f = z_base as f64;
+
+            ((log12 + logvarg) / (2.0 * z_base_f)).ceil() as usize
+        };
 
         return (quadratic_length.max(1_usize), varg);
     }
@@ -152,7 +189,7 @@ fn commit_rank_1_total_norm(
     quadratic: u8,
     varz: u128,
     varg: u128,
-    decomp_dim: usize,
+    split_dim: usize,
     z_base: usize,
     z_length: usize,
     uniform_base: usize,
@@ -169,7 +206,7 @@ fn commit_rank_1_total_norm(
 
         total_norm_square = ((1 << 2 * z_base as u128) / 12 * (z_length as u128 - 1)
             + varz / (1 << 2 * z_base * (z_length - 1)))
-            * decomp_dim as u128;
+            * split_dim as u128;
 
         if !is_tail {
             // quadratic contribution: linear coefs
@@ -211,7 +248,7 @@ fn commit_2_u1_u2(
     new_r: usize,
     total_sqrt: f64,
     varz: u128,
-    decomp_dim: usize,
+    split_dim: usize,
     commit_rank_1: usize,
     uniform_length: usize,
     quadratic_length: usize,
@@ -237,10 +274,10 @@ fn commit_2_u1_u2(
         if commit_rank_1 <= 32
             && commit_rank_2 <= 32
             // check the total dimension of the concatenated commitment vector
-            // (z + g + h)
+            // (t || g || h)
             && uniform_length * new_r * commit_rank_1
             + (uniform_length + quadratic_length) * new_r * (new_r + 1) / 2
-            <= (1.1 * decomp_dim as f64) as usize
+            <= (1.1 * split_dim as f64) as usize
         {
             // every parameter is correct: return
             return (true, commit_rank_2, u1_len, u2_len);
@@ -257,7 +294,7 @@ fn commit_2_u1_u2(
 
         if commit_rank_1 <= 32
             && (u1_len + u2_len) * LOG_PRIME as usize
-                <= (1.1 * (decomp_dim as f64) * ((varz as f64).log2() / 2.0 + 2.05)) as usize
+                <= (1.1 * (split_dim as f64) * ((varz as f64).log2() / 2.0 + 2.05)) as usize
         {
             // every parameter is correct: return
             return (true, commit_rank_2, u1_len, u2_len);
@@ -278,10 +315,10 @@ impl Proof {
             witness.r
         };
 
-        // compute dimension of each vector, length of decomposition, squared norm
-        let mut dim = vec![0_usize; r];
-        let mut wit_length = vec![0_usize; r];
-        let mut norm_square = vec![0_u128; r];
+        let mut dim = vec![0_usize; r]; // dimension of each vector (before splitting)
+        // vectors will be split into dim.div_ceil(chunks) vectors of lower dimension
+        let mut chunks = vec![0_usize; r];
+        let mut norm_square = vec![0_u128; r]; // squared l2 norm
 
         if quadratic == 2 {
             for i in 0..witness.r {
@@ -294,17 +331,17 @@ impl Proof {
             dim[witness.r] = (LOG_PRIME as f64 / 10.0).ceil() as usize * witness.r;
             norm_square[witness.r] = (dim[witness.r] as u64 * DEGREE * (1 << 20) / 12) as u128;
 
-            wit_length[witness.r - 1] = 1;
-            wit_length[witness.r] = 1;
-            wit_length[2 * witness.r] = 1;
+            chunks[witness.r - 1] = 1;
+            chunks[witness.r] = 1;
+            chunks[2 * witness.r] = 1;
         } else {
             for i in 0..r {
                 dim[i] = witness.dim[i];
                 norm_square[i] = witness.norm_square[i];
-                wit_length[i] = if quadratic != 0 { 1 } else { 0 };
+                chunks[i] = if quadratic != 0 { 1 } else { 0 };
             }
 
-            wit_length[r - 1] = 1;
+            chunks[r - 1] = 1;
         }
 
         // compute global variables used in the for loop
@@ -313,8 +350,8 @@ impl Proof {
 
         for i in 0..r {
             dim_acc += dim[i];
-            if wit_length[i] != 0 {
-                wit_length[i] = dim_acc;
+            if chunks[i] != 0 {
+                chunks[i] = dim_acc;
                 max_dim = max_dim.max(dim_acc);
                 dim_acc = 0;
             }
@@ -323,7 +360,7 @@ impl Proof {
         // initialize most parameters, these will be modified inside the loop
         let mut new_wit_length: Vec<usize> = Vec::new();
 
-        let mut decomp_dim: usize;
+        let mut split_dim: usize;
         let mut new_r: usize;
 
         let mut z_base: usize = 0;
@@ -347,10 +384,10 @@ impl Proof {
 
         for k in (1..16).rev() {
             // decompose the inner commitment (z)
-            (decomp_dim, z_length, z_base, new_r, varz) = z_decompose(
+            (split_dim, z_length, z_base, new_r, varz) = z_decompose(
                 k,
                 is_tail,
-                &wit_length,
+                &chunks,
                 &mut new_wit_length,
                 &norm_square,
                 max_dim,
@@ -374,7 +411,7 @@ impl Proof {
                 &norm_square,
                 &dim,
                 z_base,
-                decomp_dim,
+                split_dim,
                 &new_wit_length,
             );
 
@@ -384,7 +421,7 @@ impl Proof {
                 quadratic,
                 varz,
                 varg,
-                decomp_dim,
+                split_dim,
                 z_base,
                 z_length,
                 uniform_base,
@@ -404,7 +441,7 @@ impl Proof {
                 new_r,
                 total_sqrt,
                 varz,
-                decomp_dim,
+                split_dim,
                 commit_rank_1,
                 uniform_length,
                 quadratic_length,
@@ -436,11 +473,10 @@ impl Proof {
             u2_len,
         };
 
-        // REVIEW: lifting_poly ?
         Self {
             r,
             dim,
-            wit_length: new_wit_length,
+            chunks: new_wit_length,
             tail: is_tail,
             commit_params,
             commitments: Commitments::new(is_tail),
