@@ -77,7 +77,7 @@ pub fn aggregate_constant_coeff(
             .iter_mut()
             .zip(constraint.linear_part)
         {
-            stat_vec.add_mul(alpha.clone(), &cons_vec);
+            stat_vec.add_mul_assign(alpha.clone(), &cons_vec);
         }
         output_stat.constraint.constant += &alpha * constraint.constant;
     }
