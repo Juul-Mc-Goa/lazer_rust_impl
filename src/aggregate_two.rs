@@ -201,6 +201,7 @@ impl RecursedVector {
         input_stat: &Statement,
     ) {
         let quad_base_mod_p: BaseRingElem = (com_params.quadratic_base as u64).into();
+        let unif_base_mod_p: BaseRingElem = (com_params.uniform_base as u64).into();
 
         // update self.g_part
         for (i, j, coef) in quadratic_part.0.iter() {
@@ -214,9 +215,9 @@ impl RecursedVector {
         // update self.h_part
         for i in 0..input_stat.r {
             let mut scaled_coef = c_agg.clone();
-            for k in 0..com_params.quadratic_length {
+            for k in 0..com_params.uniform_length {
                 self.h_part[k].0[i * (i + 1) + i] += &scaled_coef;
-                scaled_coef = scaled_coef * quad_base_mod_p;
+                scaled_coef = scaled_coef * unif_base_mod_p;
             }
         }
     }
