@@ -74,7 +74,7 @@ pub fn aggregate_constraints(
     for (challenge, constraint) in challenges.iter().zip(constraints.iter()) {
         // update linear_part
         for (polyvec_l, polyvec_r) in linear_part.iter_mut().zip(constraint.linear_part.iter()) {
-            polyvec_l.add_mul(*challenge, polyvec_r);
+            polyvec_l.add_mul_assign(*challenge, polyvec_r);
         }
         // update constant
         constant += challenge * &constraint.constant;

@@ -109,6 +109,10 @@ impl PolyRingElem {
         }
     }
 
+    pub fn neg(&mut self) {
+        self.element.iter_mut().for_each(|c| *c = -*c);
+    }
+
     /// Multiply the polynomial by `X^exp`, in the ring where `X^DEGREE + 1 = 0`.
     pub fn mul_by_x_power(self, mut exp: u64) -> Self {
         let mut result = Self::zero();

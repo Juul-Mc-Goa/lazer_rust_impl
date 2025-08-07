@@ -70,16 +70,6 @@ impl Statement {
         // garbage dimmension
         dim_inner += (unif_len + quad_len) * r * (r + 1) / 2;
 
-        // NOTE: legacy code ahead
-        //
-        // len is a multiple of next_2_power(com_rank2)
-        // len is bigger than unif_len * com_rank1
-        // let mut len = r * extlen(unif_len * com_rank1, com_rank2);
-        // len += quad_len * r * (r + 1) / 2;
-        // len = len.max(unif_len * r * (r + 1) / 2).max(max_dim);
-        //
-        // END of legacy code
-
         (
             Self {
                 r,

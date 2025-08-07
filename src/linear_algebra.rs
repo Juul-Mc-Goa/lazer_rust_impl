@@ -87,8 +87,16 @@ impl PolyVec {
         }
     }
 
+    pub fn mul_assign<T: Into<PolyRingElem>>(&mut self, coef: T) {
+        let coef_poly: PolyRingElem = coef.into();
+
+        for coef_self in self.0.iter_mut() {
+            *coef_self = &coef_poly * coef_self.clone();
+        }
+    }
+
     /// Update `self`: `self <- self + coef * other`.
-    pub fn add_mul<T: Into<PolyRingElem>>(&mut self, coef: T, other: &Self) {
+    pub fn add_mul_assign<T: Into<PolyRingElem>>(&mut self, coef: T, other: &Self) {
         let coef_poly: PolyRingElem = coef.into();
 
         for (coef_self, coef_other) in self.0.iter_mut().zip(other.0.iter()) {
