@@ -61,7 +61,6 @@ impl Statement {
             quadratic_base: _,
             quadratic_length: quad_len,
             commit_rank_1: com_rank1,
-            // commit_rank_2: com_rank2,
             ..
         } = com_params;
 

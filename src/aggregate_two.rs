@@ -6,6 +6,7 @@ use rand_chacha::ChaCha8Rng;
 use crate::{
     commit::{CommitKey, CommitKeyData, CommitParams, Commitments},
     linear_algebra::{PolyMatrix, PolyVec, SparsePolyMatrix},
+    proof::Proof,
     ring::{BaseRingElem, PolyRingElem},
     statement::Statement,
 };
@@ -106,7 +107,7 @@ impl RecursedVector {
         let mut matrix_part = matrix_a.apply_transpose(c_z);
         matrix_part.0.iter_mut().for_each(|poly| poly.neg());
 
-        let z_base_mod_p: BaseRingElem = (com_params.z_base as u64).into();
+        let z_base_mod_p: BaseRingElem = (1 << com_params.z_base as u64).into();
 
         // update self.z_part
         for k in 0..com_params.z_length {
@@ -114,7 +115,7 @@ impl RecursedVector {
             matrix_part.mul_assign(z_base_mod_p);
         }
 
-        let unif_base_mod_p: BaseRingElem = (com_params.uniform_base as u64).into();
+        let unif_base_mod_p: BaseRingElem = (1 << com_params.uniform_base as u64).into();
 
         // update self.t_part
         for i in 0..input_stat.r {
@@ -129,7 +130,7 @@ impl RecursedVector {
     }
 
     /// Build linear part of the constraint:
-    /// `< z, z > = sum(ijk, (quad_base ^ k) c_i c_j g_ijk)`.
+    /// `< z, z > = sum(ijk, ((2 ^ quad_base) ^ k) c_i c_j g_ijk)`.
     ///
     /// The quadratic part has to be built elsewhere.
     fn add_g_constraint(
@@ -139,7 +140,7 @@ impl RecursedVector {
         input_stat: &Statement,
     ) {
         let mut k_part = -c_g.clone();
-        let quad_base_mod_p: BaseRingElem = (com_params.quadratic_base as u64).into();
+        let quad_base_mod_p: BaseRingElem = (1 << com_params.quadratic_base as u64).into();
 
         for k in 0..com_params.quadratic_length {
             for i in 0..input_stat.r {
@@ -161,7 +162,7 @@ impl RecursedVector {
         com_params: &CommitParams,
         input_stat: &Statement,
     ) {
-        let z_base_mod_p: BaseRingElem = (com_params.z_base as u64).into();
+        let z_base_mod_p: BaseRingElem = (1 << com_params.z_base as u64).into();
 
         // update self.z_part
         for part in linear_part {
@@ -174,7 +175,7 @@ impl RecursedVector {
         }
 
         let mut k_part = PolyRingElem::one();
-        let unif_base_mod_p: BaseRingElem = (com_params.uniform_base as u64).into();
+        let unif_base_mod_p: BaseRingElem = (1 << com_params.uniform_base as u64).into();
 
         // update self.h_part
         for k in 0..com_params.uniform_length {
@@ -190,7 +191,9 @@ impl RecursedVector {
     }
 
     /// Build linear part of the constraint:
-    /// `sum(ijk, (quad_base ^ k) a_ij g_ijk) + sum(ik, (unif_base ^ k) h_iik) + constant = 0`.
+    /// `sum(ijk, ((2 ^ quad_base) ^ k) a_ij g_ijk) +
+    /// sum(ik, ((2 ^ unif_base) ^ k) h_iik) +
+    /// constant = 0`.
     ///
     /// The `constant` part has to be built elsewhere.
     fn add_agg_constraint(
@@ -200,8 +203,8 @@ impl RecursedVector {
         com_params: &CommitParams,
         input_stat: &Statement,
     ) {
-        let quad_base_mod_p: BaseRingElem = (com_params.quadratic_base as u64).into();
-        let unif_base_mod_p: BaseRingElem = (com_params.uniform_base as u64).into();
+        let quad_base_mod_p: BaseRingElem = (1 << com_params.quadratic_base as u64).into();
+        let unif_base_mod_p: BaseRingElem = (1 << com_params.uniform_base as u64).into();
 
         // update self.g_part
         for (i, j, coef) in quadratic_part.0.iter() {
@@ -225,6 +228,7 @@ impl RecursedVector {
 
 pub fn aggregate_input_stat(
     output_stat: &mut Statement,
+    proof: &Proof,
     input_stat: &Statement,
     commit_key: &CommitKey,
 ) {
@@ -302,9 +306,58 @@ pub fn aggregate_input_stat(
     // handle z:
     recursed_vector.add_inner_constraint(&c_z, matrix_a, &com_params, input_stat);
 
-    // handle g:
-    recursed_vector.add_g_constraint(&c_g, &com_params, input_stat);
-    // TODO: build quadratic part
+    // if the quadratic part in `input_stat` is non-empty:
+    if !input_stat.constraint.quadratic_part.0.is_empty() {
+        // handle g:
+        recursed_vector.add_g_constraint(&c_g, &com_params, input_stat);
+
+        // handle quadratic part:
+        //   - z = sum(
+        //       k in 0..f,
+        //       ((2 ^ z_base) ^ k) z_k
+        //     )
+        //   - < z, z > = sum(
+        //       k in 0..f,
+        //       ((2 ^ z_base) ^ 2k) < z_k, z_k >
+        //     ) + 2 * sum(
+        //       l < k in 0..f,
+        //       ((2 ^ z_base) ^ (k + l)) < z_k, z_l >
+        //     )
+        //   - each z_k is a concatenation of witnesses:
+        //     z_k = s_i || ... || s_(i + chunks - 1)
+
+        let chunks = proof.chunks[0];
+        let z_base = input_stat.commit_params.z_base;
+        let z_length = input_stat.commit_params.z_length;
+
+        output_stat.constraint.quadratic_part.0 =
+            Vec::with_capacity(chunks * z_length * (z_length + 1) / 2);
+
+        for k in 0..z_length {
+            for l in 0..=k {
+                let log_scale_factor = z_base * (k + l);
+                let scale_factor: BaseRingElem = (1 << log_scale_factor).into();
+
+                // compute `-< z, z >`: coef is either -1 or -2
+                let mut coef: PolyRingElem = if l == k {
+                    -PolyRingElem::one()
+                } else {
+                    let two: BaseRingElem = 2.into();
+                    (-two).into()
+                };
+
+                coef = scale_factor * coef;
+
+                for chunk_idx in 0..chunks {
+                    output_stat.constraint.quadratic_part.0.push((
+                        chunks * k + chunk_idx,
+                        chunks * l + chunk_idx,
+                        coef.clone(),
+                    ));
+                }
+            }
+        }
+    }
 
     // handle h:
     recursed_vector.add_h_constraint(&input_stat.constraint.linear_part, &com_params, input_stat);
@@ -317,6 +370,4 @@ pub fn aggregate_input_stat(
         input_stat,
     );
     output_stat.constraint.constant += c_agg * &input_stat.constraint.constant;
-
-    // TODO: handle quadratic part
 }
