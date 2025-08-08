@@ -222,9 +222,9 @@ pub fn commit(
             .extend_from_slice(&input_wit.vectors[i].0);
         coord_idx += dim[i];
 
-        if proof.wit_length[i] != 0 {
+        if proof.chunks[i] != 0 {
             let coords_to_fill = output_stat.dim - coord_idx;
-            let vectors_to_fill = proof.wit_length[i] - 1;
+            let vectors_to_fill = proof.chunks[i] - 1;
 
             // fill the rest of full_witness[vector_idx] with zeros
             for _ in 0..coords_to_fill {
@@ -267,7 +267,7 @@ pub fn commit(
             }
 
             // update vector index: filled exactly wit_length[i] vectors
-            vector_idx += proof.wit_length[i];
+            vector_idx += proof.chunks[i];
             // next vector: start at the first coordinate
             coord_idx = 0;
         }

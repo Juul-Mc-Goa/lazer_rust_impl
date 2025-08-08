@@ -38,7 +38,7 @@ pub fn extlen(len: usize, deg: usize) -> usize {
 impl Statement {
     /// Create a new `Statement` and the commitment key.
     pub fn new(proof: &Proof, hash: &[u8; 16]) -> (Self, CommitKey) {
-        let r: usize = proof.wit_length.iter().sum();
+        let r: usize = proof.chunks.iter().sum();
 
         let mut max_dim: usize = 0;
         let mut dim_acc: usize = 0;
@@ -46,8 +46,8 @@ impl Statement {
         for i in 0..proof.r {
             dim_acc += proof.dim[i];
 
-            if proof.wit_length[i] != 0 {
-                max_dim = max_dim.max(dim_acc.div_ceil(proof.wit_length[i]));
+            if proof.chunks[i] != 0 {
+                max_dim = max_dim.max(dim_acc.div_ceil(proof.chunks[i]));
                 dim_acc = 0;
             }
         }
