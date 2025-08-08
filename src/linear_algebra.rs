@@ -49,6 +49,26 @@ impl PolyVec {
         self.0.append(&mut other.0);
     }
 
+    /// Split one `PolyVec` into chunks of size `split_dim`. The last chunk is padded with
+    /// zeros.
+    pub fn split(self, split_dim: usize) -> Vec<PolyVec> {
+        let mut result: Vec<PolyVec> = Vec::new();
+        let regular_chunks = self.0.len() / split_dim;
+
+        for i in 0..regular_chunks {
+            let (start, end) = (split_dim * i, split_dim * (i + 1));
+            result.push(PolyVec(self.0[start..end].to_vec()));
+        }
+
+        if self.0.len() % split_dim != 0 {
+            let start = split_dim * regular_chunks;
+            let mut last_chunk = self.0[start..].to_vec();
+            last_chunk.resize(split_dim, PolyRingElem::zero());
+        }
+
+        result
+    }
+
     /// See a `PolyVec` as an array of `u8`, return an iterator over such an array.
     pub fn iter_bytes(&self) -> impl Iterator<Item = u8> {
         self.0

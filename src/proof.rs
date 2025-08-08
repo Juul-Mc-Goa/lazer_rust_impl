@@ -11,6 +11,8 @@ pub struct Proof {
     pub r: usize,
     /// Witness dimensions.
     pub dim: Vec<usize>,
+    /// Witness dimension after splitting.
+    pub split_dim: usize,
     /// Decomposition parts.
     pub chunks: Vec<usize>,
     /// `true` if this proof should not be recursively reduced further.
@@ -360,7 +362,7 @@ impl Proof {
         // initialize most parameters, these will be modified inside the loop
         let mut new_wit_length: Vec<usize> = Vec::new();
 
-        let mut split_dim: usize;
+        let mut split_dim: usize = 0;
         let mut new_r: usize;
 
         let mut z_base: usize = 0;
@@ -476,6 +478,7 @@ impl Proof {
         Self {
             r,
             dim,
+            split_dim,
             chunks: new_wit_length,
             tail: is_tail,
             commit_params,
