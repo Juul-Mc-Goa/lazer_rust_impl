@@ -18,9 +18,9 @@ struct RecursedVector {
     z_part: Vec<PolyVec>,
     /// Decomposition of each `t_i`: ` unif_len * r` PolyVecs of size `com_rank_1`.
     t_part: Vec<Vec<PolyVec>>,
-    /// Decomposition of each `g_ij`: `quad_len` PolyVecs of size `r(r+1)/2`
+    /// Decomposition of each `g_ij` (with `i <= j`): `quad_len` PolyVecs of size `r(r+1)/2`.
     g_part: Vec<PolyVec>,
-    /// Decomposition of each `h_ij`: `unif_len` PolyVecs of size `r(r+1)/2`
+    /// Decomposition of each `h_ij` (with `i <= j`): `unif_len` PolyVecs of size `r(r+1)/2`.
     h_part: Vec<PolyVec>,
 }
 
@@ -102,7 +102,7 @@ impl RecursedVector {
         // update self.g_part
         for k in 0..com_params.quadratic_length {
             for i in 0..input_stat.r {
-                for (j, poly) in matrices_c[i][k].apply_transpose(&c_1).0.iter().enumerate() {
+                for (j, poly) in matrices_c[k][i].apply_transpose(&c_1).0.iter().enumerate() {
                     self.g_part[k].0[i * (i + 1) / 2 + j] += poly;
                 }
             }
@@ -178,7 +178,7 @@ impl RecursedVector {
         for k in 0..com_params.quadratic_length {
             for i in 0..input_stat.r {
                 let i_part = &k_part * &input_stat.challenges[i];
-                for j in 0..i {
+                for j in i..input_stat.r {
                     self.g_part[k].0[i * (i + 1) / 2 + j] += &i_part * &input_stat.challenges[j];
                 }
             }
@@ -214,7 +214,7 @@ impl RecursedVector {
         for k in 0..com_params.uniform_length {
             for i in 0..input_stat.r {
                 let i_part = &k_part * &input_stat.challenges[i];
-                for j in 0..i {
+                for j in i..input_stat.r {
                     self.h_part[k].0[i * (i + 1) / 2 + j] += &i_part * &input_stat.challenges[j];
                 }
             }
