@@ -14,6 +14,7 @@ mod witness;
 
 mod aggregate_one;
 mod aggregate_two;
+mod amortize;
 mod commit;
 mod dachshund;
 mod project;
