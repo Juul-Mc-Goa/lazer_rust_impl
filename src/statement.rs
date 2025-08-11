@@ -85,4 +85,32 @@ impl Statement {
             CommitKey::new(proof.tail, r, max_dim, com_params),
         )
     }
+
+    pub fn as_mut_parts(
+        &mut self,
+    ) -> (
+        &mut usize,
+        &mut usize,
+        &mut usize,
+        &mut bool,
+        &mut CommitParams,
+        &mut Commitments,
+        &mut Vec<PolyRingElem>,
+        &mut Constraint,
+        &mut u64,
+        &mut [u8; 16],
+    ) {
+        (
+            &mut self.r,
+            &mut self.dim,
+            &mut self.dim_inner,
+            &mut self.tail,
+            &mut self.commit_params,
+            &mut self.commitments,
+            &mut self.challenges,
+            &mut self.constraint,
+            &mut self.squared_norm_bound,
+            &mut self.hash,
+        )
+    }
 }
