@@ -14,11 +14,12 @@ pub const DEGREE: u64 = 64;
 pub const JL_MAX_NORM: u64 = 1 << 28;
 pub const JL_MAX_NORM_SQ: u128 = 1 << 56;
 
-// #[allow(dead_code)]
-// pub const AES128_BLOCK_BYTES: u64 = 512;
-
+/// Let `c` be a challenge polynomial. Then `l2(c * r) / l2(c) <=
+/// CHALLENGE_NORM`, for all `r`.
 pub const CHALLENGE_NORM: u64 = 14;
+/// number of challenge polynomial coefficients that are `1` or `-1`.
 pub const TAU1: u128 = 32;
+/// number of challenge polynomial coefficients that are `2` or `-2`.
 pub const TAU2: u128 = 8;
 
 lazy_static! {
