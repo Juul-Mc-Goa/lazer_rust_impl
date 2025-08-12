@@ -54,23 +54,24 @@ fn z_decompose(
 
     let new_r: usize = new_chunks.iter().sum();
 
-    // compute l2 square of witness
-    let mut varz: u128 = norm_square.iter().sum();
-    // compute average l2 square of split vectors
-    // then average from R_p to A_p ?
-    varz /= split_dim as u128 * DEGREE as u128;
-    varz *= TAU1 + 4 * TAU2;
+    // compute variance of the coordinates (over A_p) of z.
+    let mut var_z: u128 = norm_square.iter().sum();
+    // average square of each coefficient:
+    var_z /= split_dim as u128 * DEGREE as u128;
+    // times the variance of the challenges:
+    let var_challenges = TAU1 + 4 * TAU2;
+    var_z *= var_challenges;
 
     let mut decompose: bool = !is_tail
         && !sis_secure(
             13,
             6.0 * CHALLENGE_NORM as f64
                 * *SLACK
-                * (2.0 * (TAU1 as f64 + 4.0 * TAU2 as f64) * DEGREE as f64).sqrt()
-                * (varz as f64 * split_dim as f64),
+                * (2.0 * (var_challenges as f64) * DEGREE as f64).sqrt()
+                * (var_z as f64 * split_dim as f64),
         );
     // check that average squared norm is less than JL_MAX_NORM ?
-    decompose |= DEGREE as u128 * varz > (1 << 28);
+    decompose |= DEGREE as u128 * var_z > (1 << 28);
 
     let twelve_log2 = |i| (12_f64 * i as f64).log2();
 
@@ -79,18 +80,18 @@ fn z_decompose(
         (
             split_dim,
             2,
-            (twelve_log2(varz) / 4.0).round() as usize,
+            (twelve_log2(var_z) / 4.0).round() as usize,
             new_r,
-            varz,
+            var_z,
         )
     } else {
         // z_base = log((12 * varz)^1/2)
         (
             split_dim,
             1,
-            (twelve_log2(varz) / 2.0).round() as usize,
+            (twelve_log2(var_z) / 2.0).round() as usize,
             new_r,
-            varz,
+            var_z,
         )
     }
 }
@@ -105,84 +106,53 @@ fn quad_length_varg(
     split_dim: usize,
     chunks: &Vec<usize>,
 ) -> (usize, u128) {
-    let mut varg: u128 = 0;
+    // this will hold the variance of ONE coefficient of the `g_ij`s.
+    let mut var_g: u128 = 0;
 
     if quadratic == 0 {
-        return (0, varg);
+        return (0, var_g);
     } else if is_tail {
-        return (1, varg);
+        return (1, var_g);
     } else {
         let mut t: usize = 0;
-        let mut u = 0;
+        let mut u: usize = 0;
 
-        // 1. normsquare of a in R_p: l2_sq(a) = sum(d in 0..DEGREE, a_d^2)
-        // 2. normsquare of ab in R_p:
-        //    sum(
-        //      d in 0..DEGREE,
-        //      sum(
-        //        e + f = d (mod DEGREE),
-        //        (+-1) * a_e b_f
-        //      ) ^ 2
-        //    )
-        //
-        //    but (Cauchy-Schwarz):
-        //    sum(
-        //      e + f = d (mod DEGREE),
-        //      (+-1) * a_e b_f
-        //    ) ^ 2 <= l2_sq(a) l2_sq(b)
-        //
-        //    so l2_sq(ab) <= DEGREE l2_sq(a) l2_sq(b)
-        // 3. normsquare of s in R_p^n:
-        //      l2_sq(s) = sum(k in 0..n, l2_sq(s_k))
-        // 4. so if:
-        //      g_ij = < s_i, s_j > = sum(k in 0..n, s_ik s_jk) is in R_p
-        //    then:
-        //      l2(g_ij) <= sum(k, l2(s_ik s_jk))           (triangular inequality)
-        //               <= sqrt(DEGREE) sum(k, l2(s_ik) l2(s_jk))
-        //               <= sqrt(DEGREE) l2(s_i) l2(s_j)    (Cauchy-Schwarz)
-        //    thus:
-        //      l2_sq(g_ij) <= DEGREE l2_sq(s_i) l2_sq(s_j)
-
-        // NOTE: the fuck is this ?
         for i in 0..r {
-            // average of witness (squared) coefficients (over A_p)
-            let mean_wit: f64 = norm_square[i] as f64 / (dim[i] as f64 * DEGREE as f64);
-            // quadratic garbage: compute square of `mean_wit`
-            let mean_wit_sq: usize = (mean_wit * mean_wit) as usize;
+            // Variance of witness coordinates (over A_p)
+            let var_wit: f64 = norm_square[i] as f64 / (dim[i] as f64 * DEGREE as f64);
+            // quadratic garbage: compute square of `var_wit`
+            let var_wit_sq: usize = (var_wit * var_wit) as usize;
             let mut j: usize = dim[i];
 
+            // the vector g is split into many vectors of dimension `split_dim`
             while j >= split_dim - u {
                 j -= split_dim - u;
-                // t is the average (squared) norm of witness[i][j..] divided
-                // by DEGREE
-                t += mean_wit_sq * (split_dim - u);
-                varg = varg.max(t as u128);
+                t += var_wit_sq * (split_dim - u);
+                var_g = var_g.max(t as u128);
                 t = 0;
                 u = 0;
             }
 
-            // t is the average (squared) norm of witness[i] divided by DEGREE
-            t += mean_wit_sq * j;
+            t += var_wit_sq * j;
             u += j;
 
             if chunks[i] != 0 {
-                varg = varg.max(t as u128);
+                var_g = var_g.max(t as u128);
                 t = 0;
                 u = 0;
             }
         }
 
-        // varg is roughly the maximum over i of l2_sq(witness[i])
-        varg *= 2 * DEGREE as u128;
+        var_g *= 2 * DEGREE as u128;
         let quadratic_length = {
-            let log12 = 12_f64.log2();
-            let logvarg = (varg as f64).log2();
+            let log_12 = 12_f64.log2();
+            let log_var_g = (var_g as f64).log2();
             let z_base_f = z_base as f64;
 
-            ((log12 + logvarg) / (2.0 * z_base_f)).ceil() as usize
+            ((log_12 + log_var_g) / (2.0 * z_base_f)).ceil() as usize
         };
 
-        return (quadratic_length.max(1_usize), varg);
+        return (quadratic_length.max(1_usize), var_g);
     }
 }
 
@@ -200,31 +170,40 @@ fn commit_rank_1_total_norm(
     quadratic_length: usize,
     new_r: usize,
 ) -> (usize, u128) {
+    let quad_rank = new_r * (new_r + 1) / 2;
+    let (unif_base, unif_len) = (uniform_base as u128, uniform_length as u128);
+    let (z_base, z_len) = (z_base as u128, z_length as u128);
+    let (quad_base, quad_len) = (quadratic_base as u128, quadratic_length as u128);
+
     let mut commit_rank_1: usize = 0;
     let mut total_norm_square: u128 = 0;
+
+    // variance of a vector with length coordinates, each uniform in
+    // 0..2^b
+    let var_decomp = |base: u128, length: u128| (length << 2 * base) / 12;
+    // variance of the highest digit
+    let var_highest = |base: u128, length: u128, var: u128| var >> base * (length - 1);
 
     while commit_rank_1 <= 32 {
         commit_rank_1 += 1;
 
-        total_norm_square = ((1 << 2 * z_base as u128) / 12 * (z_length as u128 - 1)
-            + varz / (1 << 2 * z_base * (z_length - 1)))
-            * split_dim as u128;
+        let t_rank = new_r * commit_rank_1;
+
+        total_norm_square =
+            (var_decomp(z_base, z_len) + var_highest(z_base, z_len, varz)) * split_dim as u128;
 
         if !is_tail {
             // quadratic contribution: linear coefs
-            let (unif_base, unif_len) = (uniform_base as u128, uniform_length as u128);
-            total_norm_square += ((1 << 2 * unif_base) * (unif_len - 1)
-                + (1 << 2 * (LOG_PRIME as u128 - unif_base * (unif_len - 1))))
-                * (new_r * commit_rank_1 + new_r * (new_r + 1) / 2) as u128
-                / 12;
+            total_norm_square += (var_decomp(unif_base, unif_len)
+                + (1 << 2 * (LOG_PRIME as u128 - unif_base * (unif_len - 1))) / 12)
+                * (t_rank + quad_rank) as u128;
         }
 
         if !is_tail && quadratic != 0 {
             // quadratic contribution: quadratic coefs
-            let (quad_base, quad_len) = (quadratic_base as u128, quadratic_length as u128);
-            total_norm_square += ((1 << 2 * quad_base) * (quad_len - 1) / 12
-                + varg / (1 << 2 * quad_base * (quad_len - 1)))
-                * (new_r * (new_r + 1) / 2) as u128;
+            total_norm_square += (var_decomp(quad_base, quad_len)
+                + var_highest(quad_base, quad_len, varg))
+                * quad_rank as u128;
         }
 
         total_norm_square *= DEGREE as u128;
@@ -234,7 +213,7 @@ fn commit_rank_1_total_norm(
             commit_rank_1,
             6.0 * CHALLENGE_NORM as f64
                 * *SLACK
-                * (1 << (z_length - 1) * z_base) as f64
+                * (1 << (z_len - 1) * z_base) as f64
                 * (total_norm_square as f64).sqrt(),
         ) {
             break;
