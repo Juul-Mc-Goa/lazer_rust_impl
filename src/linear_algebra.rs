@@ -1,3 +1,5 @@
+use std::ops::{Add, Mul, MulAssign};
+
 use crate::{constants::LOG_PRIME, ring::PolyRingElem};
 
 use rand_chacha::ChaCha8Rng;
@@ -17,6 +19,11 @@ impl PolyVec {
     /// Create an empty `PolyVec`.
     pub fn new() -> Self {
         PolyVec(Vec::new())
+    }
+
+    /// Compute the sum of each squared coefficients (in `A_q`)
+    pub fn norm_square(&self) -> u128 {
+        self.0.iter().map(|r| r.norm_square()).sum()
     }
 
     /// Compute scalar product with another `PolyVec`.
@@ -116,12 +123,28 @@ impl PolyVec {
     }
 
     /// Update `self`: `self <- self + coef * other`.
-    pub fn add_mul_assign<T: Into<PolyRingElem>>(&mut self, coef: T, other: &Self) {
-        let coef_poly: PolyRingElem = coef.into();
-
+    pub fn add_mul_assign(&mut self, coef: &PolyRingElem, other: &Self) {
         for (coef_self, coef_other) in self.0.iter_mut().zip(other.0.iter()) {
-            *coef_self += &coef_poly * coef_other;
+            *coef_self += coef * coef_other;
         }
+    }
+}
+
+impl MulAssign<&PolyRingElem> for PolyVec {
+    fn mul_assign(&mut self, other: &PolyRingElem) {
+        for coef_self in self.0.iter_mut() {
+            *coef_self = other * &*coef_self;
+        }
+    }
+}
+
+impl Mul<&PolyRingElem> for &PolyVec {
+    type Output = PolyVec;
+    fn mul(self, other: &PolyRingElem) -> PolyVec {
+        let mut result = self.clone();
+        result *= other;
+
+        result
     }
 }
 

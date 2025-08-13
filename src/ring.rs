@@ -1,7 +1,9 @@
 use rand::Rng;
+use rand::distr::{Bernoulli, Distribution};
+use rand::seq::SliceRandom;
 use rand_chacha::ChaCha8Rng;
 
-use crate::constants::{DEGREE, LOG_PRIME, ONE_HALF_MOD_PRIME, PRIME, PRIME_BYTES_LEN};
+use crate::constants::{DEGREE, LOG_PRIME, ONE_HALF_MOD_PRIME, PRIME, PRIME_BYTES_LEN, TAU1, TAU2};
 use std::fmt::{Debug, Formatter};
 use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 
@@ -102,6 +104,14 @@ impl PolyRingElem {
         PolyRingElem { element }
     }
 
+    /// Compute the sum of each squared coefficients
+    pub fn norm_square(&self) -> u128 {
+        self.element
+            .iter()
+            .map(|b| b.element as u128 * b.element as u128)
+            .sum()
+    }
+
     /// Divide by `2` modulo `p`.
     pub fn halve(&self) -> Self {
         Self {
@@ -165,6 +175,40 @@ impl PolyRingElem {
         Self {
             element: (0..DEGREE).map(|_| BaseRingElem::random(rng)).collect(),
         }
+    }
+
+    /// Generate a polynomial with 32 coefficients equal to `+-1`, 8
+    /// coefficients equal to `+-2`, and 24 zero coefficients.
+    pub fn challenge(rng: &mut ChaCha8Rng) -> Self {
+        // generate signs
+        let bernoulli = Bernoulli::from_ratio(1, 2).unwrap();
+        let signs: Vec<bool> = (0..40).map(|_| bernoulli.sample(rng)).collect();
+
+        // generate element
+        let deg_size = DEGREE as usize;
+        let tau1_size = TAU1 as usize;
+        let tau2_size = TAU2 as usize;
+        let mut element: Vec<BaseRingElem> = (0..deg_size)
+            .map(|i| {
+                let abs_coef = if i < tau1_size {
+                    1
+                } else if i < tau1_size + tau2_size {
+                    2
+                } else {
+                    0
+                };
+
+                if signs[i] {
+                    -BaseRingElem::from(abs_coef)
+                } else {
+                    abs_coef.into()
+                }
+            })
+            .collect();
+
+        element.shuffle(rng);
+
+        Self { element }
     }
 
     /// Decompose the polynomial in the base `2^d`, returns a list of polynomials.
