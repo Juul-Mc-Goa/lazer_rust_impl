@@ -1,5 +1,6 @@
 use crate::{
     commit::{CommitKey, CommitKeyData, CommitParams, Commitments},
+    constants::{DEGREE, PRIME_BYTES_LEN},
     linear_algebra::PolyVec,
     proof::Proof,
     ring::PolyRingElem,
@@ -20,7 +21,89 @@ pub fn amortize_tail(
     proof: &mut Proof,
     tmp_wit: &Witness,
 ) {
-    todo!()
+    let r = output_stat.r;
+    let z_base = output_stat.commit_params.z_base;
+    let mut h: Vec<PolyRingElem> = Vec::with_capacity(2 * r);
+    let mut hashbuf = [0_u8; 16 + 2 * DEGREE as usize * PRIME_BYTES_LEN];
+
+    let phi = &mut output_stat.constraint.linear_part;
+    let s = &tmp_wit.vectors;
+    let challenges = &mut output_stat.challenges;
+
+    let make_rng_challenge = |buf: &[u8]| -> PolyRingElem {
+        let mut seed = [0_u8; 32];
+        seed.copy_from_slice(&buf[..32]);
+        let mut rng = ChaCha8Rng::from_seed(seed);
+
+        PolyRingElem::challenge(&mut rng)
+    };
+
+    // compute < phi_0, s_0 >
+    let mut s_acc = s[0].clone();
+    let mut phi_acc = phi[0].clone();
+    h.push(phi[0].scalar_prod(&s_acc));
+
+    // shake128(output_stat.hash || h[0])
+    let mut hasher = Shake128::default();
+    hasher.update(&output_stat.hash);
+    hasher.update(&h[0].to_le_bytes());
+    let mut reader = hasher.finalize_xof();
+    reader.read(&mut hashbuf[..32]);
+
+    challenges.push(make_rng_challenge(&hashbuf));
+
+    for i in 1..r {
+        // compute h[2i - 1]
+        h.push(phi[i].scalar_prod(&s_acc));
+        h[2 * i - 1] += phi_acc.scalar_prod(&s[i]);
+
+        // compute h[2i]
+        h.push(phi[i].scalar_prod(&s[i]));
+
+        // generate challenges[i]: update hashbuf
+        let mut hasher = Shake128::default();
+        hasher.update(&hashbuf[0..16]);
+        hasher.update(&h[2 * i - 1].to_le_bytes());
+        hasher.update(&h[2 * i].to_le_bytes());
+        let mut reader = hasher.finalize_xof();
+        reader.read(&mut hashbuf);
+
+        // generate challenges[i]
+        challenges.push(make_rng_challenge(&hashbuf));
+
+        // update s_acc, phi_acc
+        s_acc.add_mul_assign(&challenges[i], &s[i]);
+        phi_acc.add_mul_assign(&challenges[i], &phi[i]);
+    }
+
+    let Commitments::Tail {
+        mut inner,
+        mut garbage,
+    } = output_stat.commitments
+    else {
+        panic!("amortize tail: output_stat.commitments is tail");
+    };
+
+    garbage.0.append(&mut h);
+
+    // store new hash
+    output_stat.hash.copy_from_slice(&hashbuf[..16]);
+
+    // compute z
+    //         output_wit.norm_square
+    //         output_stat.squared_norm_bound
+    let mut new_wit: Vec<PolyVec> = Vec::new();
+    for (i, z_small) in s_acc.decomp(z_base).into_iter().enumerate() {
+        output_wit.norm_square[i] = z_small.norm_square();
+        output_stat.squared_norm_bound += output_wit.norm_square[i];
+        new_wit.push(z_small);
+    }
+
+    new_wit.append(&mut output_wit.vectors);
+    output_wit.vectors = new_wit;
+
+    proof.norm_square = output_stat.squared_norm_bound;
+    phi.resize(output_stat.dim, PolyVec::new());
 }
 
 /// Transform a witness `(s_1, ..., ,s_r)` into a new witness `(z, t, g, h)`.
@@ -47,8 +130,8 @@ pub fn amortize(
     let Statement {
         r,
         dim,
-        dim_inner,
-        tail,
+        dim_inner: _,
+        tail: _,
         commit_params:
             CommitParams {
                 z_base,
@@ -97,7 +180,13 @@ pub fn amortize(
     }
 
     // decompose linear garbage
-    let mut h = h.decomp(unif_base);
+    let h = h.decomp(unif_base);
+
+    // concatenate all PolyVecs in h
+    let mut h_concat: PolyVec = PolyVec::new();
+    for h_small in h.iter() {
+        h_concat.concat(&mut h_small.clone());
+    }
 
     let CommitKey {
         data:
@@ -146,10 +235,20 @@ pub fn amortize(
         .for_each(|(w, c)| z.add_mul_assign(c, w));
 
     // decompose z
-    let mut z = z.decomp(*z_base);
+    let mut z: Vec<PolyVec> = z.decomp(*z_base);
 
-    // compute output_wit.norm_square[i]
-    //         output_stat.norm_bound[i]
+    // build new witness: z part
+    let mut new_wit: Vec<PolyVec> = Vec::with_capacity(r);
+    new_wit.append(&mut z);
+
+    // build new witness: g || h part
+    let last_idx = z_length;
+    new_wit.push(output_wit.vectors[0].clone());
+    new_wit[last_idx].concat(&mut h_concat);
+
+    // store new witness
+    output_wit.vectors = new_wit;
+
     for i in 0..=z_length {
         output_wit.norm_square[i] = output_wit.vectors[i].norm_square();
         *squared_norm_bound += output_wit.norm_square[i];
