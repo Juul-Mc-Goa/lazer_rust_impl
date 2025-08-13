@@ -15,6 +15,7 @@ use sha3::{
     digest::{ExtendableOutput, Update, XofReader},
 };
 
+/// Aggregate all the constant-term relations into one.
 #[allow(dead_code)]
 pub fn aggregate_constant_coeff(
     output_stat: &mut Statement,
@@ -50,12 +51,6 @@ pub fn aggregate_constant_coeff(
         // copy constant to proof.lifting_poly
         proof.lifting_poly.push(constraint.constant.clone());
 
-        // lift_aggregate_zqcnst:
-        // - new_hash <- shake128(output_stat.hash || constraint.constant)
-        // - output_stat.hash <- new_hash[..16]
-        // - generate alpha: PolyRingElem
-        // - multiply all data in `constraint` by alpha
-        // - add the result to output_stat.constraint
         hasher = Shake128::default();
 
         hasher.update(&output_stat.hash); // digest `hash`
@@ -77,7 +72,7 @@ pub fn aggregate_constant_coeff(
             .iter_mut()
             .zip(constraint.linear_part)
         {
-            stat_vec.add_mul_assign(alpha.clone(), &cons_vec);
+            stat_vec.add_mul_assign(&alpha, &cons_vec);
         }
         output_stat.constraint.constant += &alpha * constraint.constant;
     }

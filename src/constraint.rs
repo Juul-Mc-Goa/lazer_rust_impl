@@ -72,9 +72,10 @@ pub fn aggregate_constraints(
     let mut constant: PolyRingElem = PolyRingElem::zero();
 
     for (challenge, constraint) in challenges.iter().zip(constraints.iter()) {
+        let poly_challenge: PolyRingElem = (*challenge).into();
         // update linear_part
         for (polyvec_l, polyvec_r) in linear_part.iter_mut().zip(constraint.linear_part.iter()) {
-            polyvec_l.add_mul_assign(*challenge, polyvec_r);
+            polyvec_l.add_mul_assign(&poly_challenge, polyvec_r);
         }
         // update constant
         constant += challenge * &constraint.constant;

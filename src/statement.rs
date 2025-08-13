@@ -19,7 +19,7 @@ pub struct Statement {
     pub commitments: Commitments,
     pub challenges: Vec<PolyRingElem>,
     pub constraint: Constraint,
-    pub squared_norm_bound: u64,
+    pub squared_norm_bound: u128,
     pub hash: [u8; 16],
 }
 
@@ -97,7 +97,7 @@ impl Statement {
         &mut Commitments,
         &mut Vec<PolyRingElem>,
         &mut Constraint,
-        &mut u64,
+        &mut u128,
         &mut [u8; 16],
     ) {
         (

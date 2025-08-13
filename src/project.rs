@@ -73,7 +73,7 @@ pub fn project(statement: &mut Statement, proof: &mut Proof, wit: Witness) -> Ve
     reader.read(&mut hashbuf);
     // split the result in two
     let (hashbuf_chunks, []) = hashbuf.as_chunks::<16>() else {
-        panic!("hashbuf length is not a multiple of 16.");
+        panic!("project: hashbuf length is not a multiple of 16.");
     };
     let hashbuf_left = hashbuf_chunks[0];
     let hashbuf_right = hashbuf_chunks[1];
