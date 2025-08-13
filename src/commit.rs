@@ -185,8 +185,7 @@ fn inner_commit_no_tail(
 ) {
     let unif_base = com_params.uniform_base;
     outer_wit.push(PolyVec::new());
-    let last_idx = outer_wit.len() - 1;
-    let last_vec = &mut outer_wit[last_idx];
+    let last_vec = &mut outer_wit[0];
 
     for i in 0..input_wit.len() {
         let mut chunk = matrix_a.apply(&input_wit[i]);
@@ -222,10 +221,6 @@ pub fn commit(
     proof: &mut Proof,
     input_wit: &Witness,
 ) {
-    // output_wit:
-    //   1. all (resized) input witnesses (s_i)
-    //   2. last element: t || g || h
-
     let r = input_wit.r;
     let com_params = &output_stat.commit_params;
 
@@ -342,9 +337,9 @@ pub fn commit(
                     g_witness[k].0.append(&mut decomp_inner[i][k].0.clone());
                 }
             }
-            // REVIEW: update output_wit
-            // ie extend its last vector with all the vectors in g_witness
-            output_wit.vectors.last_mut().unwrap().concat(&mut PolyVec(
+            // ie append one vector containing all the vectors in g_witness
+            // output_wit.vectors[0] now contains decomp(t) || decomp(g)
+            output_wit.vectors[0].concat(&mut PolyVec(
                 g_witness.into_iter().map(|poly| poly.0).flatten().collect(),
             ));
         }
