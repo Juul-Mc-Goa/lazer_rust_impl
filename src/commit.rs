@@ -43,9 +43,9 @@ pub enum CommitKeyData {
     Tail {
         /// matrix of size `commit_rank_1 * dim`
         matrix_a: PolyMatrix,
-        /// `r * z_length` matrices of size `commit_rank_2 * commit_rank_1`
+        /// `z_length * r` matrices of size `commit_rank_2 * commit_rank_1`
         matrices_b: Vec<Vec<PolyMatrix>>,
-        /// `quad_length * r` matrices, where `matrix_c[i][k]` has size `commit_rank_2 * i`.
+        /// `quad_length * r` matrices, where `matrix_c[i][k]` has size `commit_rank_2 * (r - i)`.
         matrices_c: Vec<Vec<PolyMatrix>>,
     },
     /// The matrices `A, B, C, D` used to compute:
@@ -54,11 +54,11 @@ pub enum CommitKeyData {
     NoTail {
         /// matrix of size `commit_rank_1 * dim`
         matrix_a: PolyMatrix,
-        /// `r * z_length` matrices of size `commit_rank_2 * commit_rank_1`
+        /// `z_length * r` matrices of size `commit_rank_2 * commit_rank_1`
         matrices_b: Vec<Vec<PolyMatrix>>,
-        /// `quad_length * r` matrices, where `matrix_c[i][k]` has size `commit_rank_2 * i`.
+        /// `quad_length * r` matrices, where `matrix_c[k][i]` has size `commit_rank_2 * (r - i)`.
         matrices_c: Vec<Vec<PolyMatrix>>,
-        /// `r * uniform_length` matrices, where `matrix_d[i][k]` has size `commit_rank_2 * i`.
+        /// `uniform_length * r` matrices, where `matrix_d[k][i]` has size `commit_rank_2 * (r - i)`.
         matrices_d: Vec<Vec<PolyMatrix>>,
     },
 }
@@ -96,9 +96,9 @@ impl CommitKey {
         let mut rng = ChaCha8Rng::from_seed(seed);
 
         let matrix_a: PolyMatrix = PolyMatrix::random(&mut rng, com_params.commit_rank_1, dim);
-        let matrices_b: Vec<Vec<PolyMatrix>> = (0..r)
+        let matrices_b: Vec<Vec<PolyMatrix>> = (0..com_params.z_length)
             .map(|_| {
-                (0..com_params.z_length)
+                (0..r)
                     .map(|_| {
                         PolyMatrix::random(
                             &mut rng,
@@ -112,7 +112,7 @@ impl CommitKey {
         let matrices_c: Vec<Vec<PolyMatrix>> = (0..com_params.quadratic_length)
             .map(|i| {
                 (0..r)
-                    .map(|_| PolyMatrix::random(&mut rng, com_params.commit_rank_2, i))
+                    .map(|_| PolyMatrix::random(&mut rng, com_params.commit_rank_2, r - i))
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
@@ -127,10 +127,10 @@ impl CommitKey {
                 seed,
             }
         } else {
-            let matrices_d: Vec<Vec<PolyMatrix>> = (0..r)
+            let matrices_d: Vec<Vec<PolyMatrix>> = (0..com_params.uniform_length)
                 .map(|i| {
-                    (0..com_params.uniform_length)
-                        .map(|_| PolyMatrix::random(&mut rng, com_params.commit_rank_2, i))
+                    (0..r)
+                        .map(|_| PolyMatrix::random(&mut rng, com_params.commit_rank_2, r - i))
                         .collect::<Vec<_>>()
                 })
                 .collect::<Vec<_>>();
@@ -194,7 +194,7 @@ fn inner_commit_no_tail(
         // decompose inner_commit
         for (k, inner_decomp) in chunk.decomp(unif_base).iter().enumerate() {
             // apply the matrices in matrices_b
-            matrices_b[i][k].add_apply(outer, inner_decomp);
+            matrices_b[k][i].add_apply(outer, inner_decomp);
             // extend last_vec
             last_vec.concat(&mut inner_decomp.clone());
         }
