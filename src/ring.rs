@@ -3,7 +3,7 @@ use rand::distr::{Bernoulli, Distribution};
 use rand::seq::SliceRandom;
 use rand_chacha::ChaCha8Rng;
 
-use crate::constants::{DEGREE, LOG_PRIME, ONE_HALF_MOD_PRIME, PRIME, PRIME_BYTES_LEN, TAU1, TAU2};
+use crate::constants::{DEGREE, ONE_HALF_MOD_PRIME, PRIME, PRIME_BYTES_LEN, TAU1, TAU2};
 use std::fmt::{Debug, Formatter};
 use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 
@@ -211,23 +211,22 @@ impl PolyRingElem {
         Self { element }
     }
 
-    /// Decompose the polynomial in the base `2^d`, returns a list of polynomials.
-    pub fn decompose(&self, d: usize) -> Vec<Self> {
-        let base = 1 << d;
-        let length = (LOG_PRIME as usize).div_ceil(d);
+    /// Decompose the polynomial in the base `2^base`, returns a list of `len` polynomials.
+    pub fn decompose(&self, base: usize, len: usize) -> Vec<Self> {
+        let base = 1 << base;
 
-        let mut coefs: Vec<Vec<u64>> = vec![Vec::new(); length];
+        let mut coefs: Vec<Vec<u64>> = vec![Vec::new(); len];
 
         for i in 0..DEGREE {
             let mut coef = self.element[i as usize].element;
-            for j in 0..length {
+            for j in 0..len {
                 let coef_limb = coef & (base - 1);
                 coefs[j].push(coef_limb);
-                coef >>= d as u64;
+                coef >>= base as u64;
             }
         }
 
-        coefs.iter().map(|v| Self::from_slice_u64(v)).collect()
+        coefs.into_iter().map(|v| Self::from_vec_u64(v)).collect()
     }
 
     /// Apply the ring automorphism defined by `sigma(X) = X^{-1} = -X^{d-1}` to the polynomial.

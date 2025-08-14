@@ -184,6 +184,7 @@ fn inner_commit_no_tail(
     com_params: &CommitParams,
 ) {
     let unif_base = com_params.uniform_base;
+    let unif_len = com_params.uniform_length;
     outer_wit.push(PolyVec::new());
     let last_vec = &mut outer_wit[0];
 
@@ -191,7 +192,7 @@ fn inner_commit_no_tail(
         let mut chunk = matrix_a.apply(&input_wit[i]);
 
         // decompose inner_commit
-        for (k, inner_decomp) in chunk.decomp(unif_base).iter().enumerate() {
+        for (k, inner_decomp) in chunk.decomp(unif_base, unif_len).iter().enumerate() {
             // apply the matrices in matrices_b
             matrices_b[k][i].add_apply(outer, inner_decomp);
             // extend last_vec
@@ -321,18 +322,20 @@ pub fn commit(
             // - decompose quad_inner,
             // - apply matrices_c, update u1
             // - append decomposed quad_inner to output_wit.vectors
+            let quad_base = com_params.quadratic_base;
+            let quad_len = com_params.quadratic_length;
 
             // decomp_inner[i][k][j]: level k of < s_i, s_j >
             let decomp_inner: Vec<Vec<PolyVec>> = quad_inner
                 .into_iter()
-                .map(|line| PolyVec(line).decomp(com_params.quadratic_base))
+                .map(|line| PolyVec(line).decomp(quad_base, quad_len))
                 .collect();
 
             // reindex decomp_inner
-            let mut g_witness: Vec<PolyVec> = vec![PolyVec::new(); com_params.quadratic_length];
+            let mut g_witness: Vec<PolyVec> = vec![PolyVec::new(); quad_len];
             for i in 0..output_stat.r {
                 // update u1
-                for k in 0..com_params.quadratic_length {
+                for k in 0..quad_len {
                     matrices_c[k][i].add_apply(&mut u1, &decomp_inner[i][k]);
                     g_witness[k].0.append(&mut decomp_inner[i][k].0.clone());
                 }

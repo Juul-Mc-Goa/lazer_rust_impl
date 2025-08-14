@@ -38,13 +38,13 @@ impl PolyVec {
         result
     }
 
-    /// Decompose a `PolyVec` in the base `2^d`. Return a list of `PolyVec`.
-    pub fn decomp(&self, d: usize) -> Vec<Self> {
-        let length = (LOG_PRIME as usize).div_ceil(d);
+    /// Decompose a `PolyVec` in the base `2^base`. Return a list of `len` `PolyVec`s.
+    pub fn decomp(&self, base: usize, len: usize) -> Vec<Self> {
+        let length = (LOG_PRIME as usize).div_ceil(base);
         let mut result: Vec<PolyVec> = vec![PolyVec::new(); length];
 
         for poly in &self.0 {
-            for (i, small_poly) in poly.decompose(d).into_iter().enumerate() {
+            for (i, small_poly) in poly.decompose(base, len).into_iter().enumerate() {
                 result[i].0.push(small_poly)
             }
         }

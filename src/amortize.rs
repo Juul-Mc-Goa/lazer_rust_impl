@@ -23,6 +23,7 @@ pub fn amortize_tail(
 ) {
     let r = output_stat.r;
     let z_base = output_stat.commit_params.z_base;
+    let z_len = output_stat.commit_params.z_length;
     let mut h: Vec<PolyRingElem> = Vec::with_capacity(2 * r);
     let mut hashbuf = [0_u8; 16 + 2 * DEGREE as usize * PRIME_BYTES_LEN];
 
@@ -93,7 +94,7 @@ pub fn amortize_tail(
     //         output_wit.norm_square
     //         output_stat.squared_norm_bound
     let mut new_wit: Vec<PolyVec> = Vec::new();
-    for (i, z_small) in s_acc.decomp(z_base).into_iter().enumerate() {
+    for (i, z_small) in s_acc.decomp(z_base, z_len).into_iter().enumerate() {
         output_wit.norm_square[i] = z_small.norm_square();
         output_stat.squared_norm_bound += output_wit.norm_square[i];
         new_wit.push(z_small);
@@ -135,7 +136,7 @@ pub fn amortize(
         commit_params:
             CommitParams {
                 z_base,
-                z_length,
+                z_length: z_len,
                 uniform_base: unif_base,
                 uniform_length: unif_len,
                 quadratic_base: _,
@@ -158,8 +159,8 @@ pub fn amortize(
     else {
         panic!("amortize: output statement is `Tail`");
     };
-    let (dim, r, z_length, unif_base, unif_len, com_rank_2) =
-        (*dim, *r, *z_length, *unif_base, *unif_len, *com_rank_2);
+    let (dim, r, z_len, unif_base, unif_len, com_rank_2) =
+        (*dim, *r, *z_len, *unif_base, *unif_len, *com_rank_2);
 
     // compute linear garbage
     let linear_part = &constraint.linear_part;
@@ -180,7 +181,7 @@ pub fn amortize(
     }
 
     // decompose linear garbage
-    let h = h.decomp(unif_base);
+    let h = h.decomp(unif_base, unif_len);
 
     // concatenate all PolyVecs in h
     let mut h_concat: PolyVec = PolyVec::new();
@@ -235,21 +236,21 @@ pub fn amortize(
         .for_each(|(w, c)| z.add_mul_assign(c, w));
 
     // decompose z
-    let mut z: Vec<PolyVec> = z.decomp(*z_base);
+    let mut z: Vec<PolyVec> = z.decomp(*z_base, z_len);
 
     // build new witness: z part
     let mut new_wit: Vec<PolyVec> = Vec::with_capacity(r);
     new_wit.append(&mut z);
 
     // build new witness: g || h part
-    let last_idx = z_length;
+    let last_idx = z_len;
     new_wit.push(output_wit.vectors[0].clone());
     new_wit[last_idx].concat(&mut h_concat);
 
     // store new witness
     output_wit.vectors = new_wit;
 
-    for i in 0..=z_length {
+    for i in 0..=z_len {
         output_wit.norm_square[i] = output_wit.vectors[i].norm_square();
         *squared_norm_bound += output_wit.norm_square[i];
     }
