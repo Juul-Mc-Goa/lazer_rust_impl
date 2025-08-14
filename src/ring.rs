@@ -5,7 +5,7 @@ use rand_chacha::ChaCha8Rng;
 
 use crate::constants::{DEGREE, ONE_HALF_MOD_PRIME, PRIME, PRIME_BYTES_LEN, TAU1, TAU2};
 use std::fmt::{Debug, Formatter};
-use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
+use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
 /// An element of `Z/pZ`, where `p = PRIME`.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -67,6 +67,16 @@ impl BaseRingElem {
         BaseRingElem { element: 1 }
     }
 
+    /// Return the "absolute value of `self`": the minimum of `self.element` and
+    /// `PRIME - self.element`.
+    pub fn abs(&self) -> u64 {
+        if 2 * self.element < PRIME {
+            self.element
+        } else {
+            PRIME - self.element
+        }
+    }
+
     /// Generate an uniformly random integer from a given RNG.
     pub fn random(rng: &mut ChaCha8Rng) -> Self {
         BaseRingElem {
@@ -104,11 +114,15 @@ impl PolyRingElem {
         PolyRingElem { element }
     }
 
-    /// Compute the sum of each squared coefficients
+    /// Compute the sum of each squared coefficients. In fact for each coefficient `coef`,
+    /// take the minimum of `coef * coef` and `(PRIME - coef) * (PRIME - coef)`
     pub fn norm_square(&self) -> u128 {
         self.element
             .iter()
-            .map(|b| b.element as u128 * b.element as u128)
+            .map(|b| {
+                let abs = b.abs() as u128;
+                abs * abs
+            })
             .sum()
     }
 
@@ -181,29 +195,29 @@ impl PolyRingElem {
     /// coefficients equal to `+-2`, and 24 zero coefficients.
     pub fn challenge(rng: &mut ChaCha8Rng) -> Self {
         // generate signs
+        let tau1_size = TAU1 as usize;
+        let non_zero_size = tau1_size + TAU2 as usize;
         let bernoulli = Bernoulli::from_ratio(1, 2).unwrap();
-        let signs: Vec<bool> = (0..40).map(|_| bernoulli.sample(rng)).collect();
+        let signs: Vec<bool> = (0..non_zero_size).map(|_| bernoulli.sample(rng)).collect();
 
         // generate element
         let deg_size = DEGREE as usize;
-        let tau1_size = TAU1 as usize;
-        let tau2_size = TAU2 as usize;
-        let mut element: Vec<BaseRingElem> = (0..deg_size)
+        let mut element: Vec<BaseRingElem> = (0..tau1_size)
             .map(|i| {
-                let abs_coef = if i < tau1_size {
-                    1
-                } else if i < tau1_size + tau2_size {
-                    2
-                } else {
-                    0
-                };
-
                 if signs[i] {
-                    -BaseRingElem::from(abs_coef)
+                    -BaseRingElem::from(1)
                 } else {
-                    abs_coef.into()
+                    1.into()
                 }
             })
+            .chain((tau1_size..non_zero_size).map(|i| {
+                if signs[i] {
+                    -BaseRingElem::from(2)
+                } else {
+                    2.into()
+                }
+            }))
+            .chain((non_zero_size..deg_size).map(|_| 0.into()))
             .collect();
 
         element.shuffle(rng);
@@ -212,21 +226,21 @@ impl PolyRingElem {
     }
 
     /// Decompose the polynomial in the base `2^base`, returns a list of `len` polynomials.
-    pub fn decompose(&self, base: usize, len: usize) -> Vec<Self> {
-        let base = 1 << base;
+    pub fn decompose(&self, log_base: usize, len: usize) -> Vec<Self> {
+        let base = 1 << log_base;
 
-        let mut coefs: Vec<Vec<u64>> = vec![Vec::new(); len];
+        let mut result: Vec<Vec<u64>> = vec![Vec::new(); len];
 
         for i in 0..DEGREE {
             let mut coef = self.element[i as usize].element;
             for j in 0..len {
                 let coef_limb = coef & (base - 1);
-                coefs[j].push(coef_limb);
-                coef >>= base as u64;
+                result[j].push(coef_limb);
+                coef >>= log_base as u64;
             }
         }
 
-        coefs.into_iter().map(|v| Self::from_vec_u64(v)).collect()
+        result.into_iter().map(|v| Self::from_vec_u64(v)).collect()
     }
 
     /// Apply the ring automorphism defined by `sigma(X) = X^{-1} = -X^{d-1}` to the polynomial.
@@ -501,6 +515,13 @@ where
 }
 
 /// Scalar multiplication `PolyRingElem x BaseRingElem`.
+impl MulAssign<BaseRingElem> for PolyRingElem {
+    fn mul_assign(&mut self, other: BaseRingElem) {
+        self.element.iter_mut().for_each(|b| *b = *b * other);
+    }
+}
+
+/// Scalar multiplication `PolyRingElem x BaseRingElem`.
 impl<T> Mul<T> for PolyRingElem
 where
     T: AsRef<BaseRingElem>,
@@ -693,7 +714,10 @@ mod tests {
         let a = PolyRingElem::from_vec_u64((0..64).collect());
 
         let log_base = 2;
-        let decomp = a.decompose(log_base);
+        let length = 5;
+        let decomp = a.decompose(log_base, length);
+
+        println!("decomp:\n{decomp:?}");
 
         let result_head = [
             PolyRingElem::from_vec_u64(vec![
