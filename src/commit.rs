@@ -14,7 +14,7 @@ use sha3::{
 };
 
 #[allow(dead_code)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct CommitParams {
     /// The base in which to decompose `z = sum(i, c_i s_i)`.
     pub z_base: usize,
@@ -72,7 +72,7 @@ pub struct CommitKey {
 }
 
 #[allow(dead_code)]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Commitments {
     Tail {
         inner: PolyVec,

@@ -7,6 +7,7 @@ use crate::{
 };
 
 #[allow(dead_code)]
+#[derive(Debug)]
 pub struct Statement {
     /// total number of vectors  (amortized)
     pub r: usize,

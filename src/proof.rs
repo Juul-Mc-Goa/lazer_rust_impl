@@ -56,6 +56,7 @@ fn z_decompose(
 
     // compute variance of the coordinates (over A_p) of z.
     let mut var_z: u128 = norm_square.iter().sum();
+    println!("varz: {var_z}, log2: {}", var_z.ilog2());
     // average square of each coefficient:
     var_z /= split_dim as u128 * DEGREE as u128;
     // times the variance of the challenges:
@@ -182,13 +183,18 @@ fn commit_rank_1_total_norm(
     // 0..2^b
     let var_decomp = |base: u128, length: u128| (length << 2 * base) / 12;
     // variance of the highest digit
-    let var_highest = |base: u128, length: u128, var: u128| var >> base * (length - 1);
+    let var_highest = |base: u128, length: u128, var: u128| var >> (base * (length - 1));
 
     while commit_rank_1 <= 32 {
         commit_rank_1 += 1;
 
         let t_rank = new_r * commit_rank_1;
 
+        println!(
+            "var decomp: {}, var high: {}",
+            var_decomp(z_base, z_len).ilog2(),
+            var_highest(z_base, z_len, varz).ilog2(),
+        );
         total_norm_square =
             (var_decomp(z_base, z_len) + var_highest(z_base, z_len, varz)) * split_dim as u128;
 
@@ -207,6 +213,11 @@ fn commit_rank_1_total_norm(
         }
 
         total_norm_square *= DEGREE as u128;
+
+        println!(
+            "log(total_norm_square): {}",
+            (total_norm_square as f64).log2()
+        );
 
         // if it's sis secure, then commit_rank_1 is good: break
         if sis_secure(
@@ -273,6 +284,16 @@ fn commit_2_u1_u2(
         };
         u2_len = 2 * new_r - 1;
 
+        let left = (u1_len + u2_len) * LOG_PRIME as usize;
+        let right = (1.1 * (split_dim as f64) * ((varz as f64).log2() / 2.0 + 2.05)) as usize;
+        println!("com_rank_1: {commit_rank_1}, r: {new_r}");
+        println!("u1_len: {u1_len}, u2_len: {u2_len}");
+        println!("left: {left}, right: {right}");
+        println!(
+            "split_dim: {split_dim}, log_varz: {}\n",
+            (varz as f64).log2()
+        );
+
         if commit_rank_1 <= 32
             && (u1_len + u2_len) * LOG_PRIME as usize
                 <= (1.1 * (split_dim as f64) * ((varz as f64).log2() / 2.0 + 2.05)) as usize
@@ -320,6 +341,8 @@ impl Proof {
                 dim[i] = witness.dim[i];
                 norm_square[i] = witness.norm_square[i];
                 chunks[i] = if quadratic != 0 { 1 } else { 0 };
+
+                println!("log norm_square[i]: {}", (norm_square[i] as f64).log2());
             }
 
             chunks[r - 1] = 1;

@@ -15,6 +15,7 @@ use crate::{
 /// * b_i is in R_p^n
 /// * c is in R_p
 #[allow(dead_code)]
+#[derive(Debug)]
 pub struct Constraint {
     pub degree: usize,
     pub quadratic_part: SparsePolyMatrix,

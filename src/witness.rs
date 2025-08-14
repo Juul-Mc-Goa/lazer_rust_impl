@@ -3,6 +3,7 @@ use crate::linear_algebra::PolyVec;
 use crate::statement::Statement;
 
 #[allow(dead_code)]
+#[derive(Clone)]
 pub struct Witness {
     /// Number of vectors (ie length of `self.vectors`).
     pub r: usize,

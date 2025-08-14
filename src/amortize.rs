@@ -77,8 +77,8 @@ pub fn amortize_tail(
     }
 
     let Commitments::Tail {
-        mut inner,
-        mut garbage,
+        inner: _,
+        ref mut garbage,
     } = output_stat.commitments
     else {
         panic!("amortize tail: output_stat.commitments is tail");

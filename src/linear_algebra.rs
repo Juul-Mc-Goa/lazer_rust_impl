@@ -1,10 +1,10 @@
-use std::ops::{Add, Mul, MulAssign};
+use std::ops::{Mul, MulAssign};
 
 use crate::{constants::LOG_PRIME, ring::PolyRingElem};
 
 use rand_chacha::ChaCha8Rng;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PolyVec(pub Vec<PolyRingElem>);
 
 pub struct PolyMatrix(pub Vec<Vec<PolyRingElem>>);
@@ -12,6 +12,7 @@ pub struct PolyMatrix(pub Vec<Vec<PolyRingElem>>);
 /// Sparse matrix with polynomial coefficients: a vector of
 /// `(row_index, column_index, coef)`.
 #[allow(dead_code)]
+#[derive(Debug)]
 pub struct SparsePolyMatrix(pub Vec<(usize, usize, PolyRingElem)>);
 
 #[allow(dead_code)]
