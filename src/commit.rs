@@ -96,7 +96,7 @@ impl CommitKey {
         let mut rng = ChaCha8Rng::from_seed(seed);
 
         let matrix_a: PolyMatrix = PolyMatrix::random(&mut rng, com_params.commit_rank_1, dim);
-        let matrices_b: Vec<Vec<PolyMatrix>> = (0..com_params.z_length)
+        let matrices_b: Vec<Vec<PolyMatrix>> = (0..com_params.uniform_length)
             .map(|_| {
                 (0..r)
                     .map(|_| {
@@ -110,9 +110,9 @@ impl CommitKey {
             })
             .collect::<Vec<_>>();
         let matrices_c: Vec<Vec<PolyMatrix>> = (0..com_params.quadratic_length)
-            .map(|i| {
+            .map(|k| {
                 (0..r)
-                    .map(|_| PolyMatrix::random(&mut rng, com_params.commit_rank_2, r - i))
+                    .map(|i| PolyMatrix::random(&mut rng, com_params.commit_rank_2, i + 1))
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
@@ -128,9 +128,9 @@ impl CommitKey {
             }
         } else {
             let matrices_d: Vec<Vec<PolyMatrix>> = (0..com_params.uniform_length)
-                .map(|i| {
+                .map(|k| {
                     (0..r)
-                        .map(|_| PolyMatrix::random(&mut rng, com_params.commit_rank_2, r - i))
+                        .map(|i| PolyMatrix::random(&mut rng, com_params.commit_rank_2, i + 1))
                         .collect::<Vec<_>>()
                 })
                 .collect::<Vec<_>>();
@@ -186,17 +186,17 @@ fn inner_commit_no_tail(
     let unif_base = com_params.uniform_base;
     let unif_len = com_params.uniform_length;
     outer_wit.push(PolyVec::new());
-    let last_vec = &mut outer_wit[0];
+    let last_vec = outer_wit.last_mut().unwrap();
 
     for i in 0..input_wit.len() {
         let mut chunk = matrix_a.apply(&input_wit[i]);
 
         // decompose inner_commit
-        for (k, inner_decomp) in chunk.decomp(unif_base, unif_len).iter().enumerate() {
+        for (k, inner_decomp) in chunk.decomp(unif_base, unif_len).iter_mut().enumerate() {
             // apply the matrices in matrices_b
             matrices_b[k][i].add_apply(outer, inner_decomp);
             // extend last_vec
-            last_vec.concat(&mut inner_decomp.clone());
+            last_vec.concat(inner_decomp);
         }
 
         inner.0.append(&mut chunk.0);
@@ -225,6 +225,7 @@ pub fn commit(
     let r = input_wit.r;
     let com_params = &output_stat.commit_params;
 
+    // resized witness
     let mut full_witness = vec![PolyVec(Vec::with_capacity(output_stat.dim)); output_stat.r];
 
     let mut vector_idx = 0; // in 0..r
@@ -232,8 +233,8 @@ pub fn commit(
     output_stat.commitments = Commitments::new(proof.tail);
     let mut inner = PolyVec::new();
     let mut garbage = PolyVec::new();
-    let mut u1 = PolyVec::new();
-    let u2 = PolyVec::new();
+    let mut u1 = PolyVec::zero(com_params.commit_rank_2);
+    let mut u2 = PolyVec::zero(com_params.commit_rank_2);
 
     let matrix_a: &PolyMatrix;
     let matrices_b: &Vec<Vec<PolyMatrix>>;
@@ -275,9 +276,10 @@ pub fn commit(
 
             // each vector (except the first) in the decomposition of
             // input_wit.vectors[i] is filled with zeros
-            for _ in 0..(proof.chunks[i] - 1) {
-                full_witness.push(PolyVec::zero(output_stat.dim));
-            }
+            full_witness.resize(
+                full_witness.len() + proof.chunks[i] - 1,
+                PolyVec::zero(output_stat.dim),
+            );
 
             let witness_chunk = &full_witness[vector_idx..(vector_idx + proof.chunks[i])];
 
@@ -378,6 +380,7 @@ pub fn commit(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::random_context;
 
     #[test]
     fn commit_tail_simple_a() {
@@ -416,5 +419,75 @@ mod tests {
         for (chunk, res) in inner.0.chunks_exact(com_rank_1).zip(expected_result.iter()) {
             assert_eq!(chunk, res.0)
         }
+    }
+
+    #[test]
+    fn commit_tail_dimensions() {
+        let r: usize = 5;
+        let dim: usize = 5;
+        let tail = true;
+        let (wit, mut proof, stat) = random_context(r, dim, tail);
+
+        let (mut output_stat, commit_key) = Statement::new(&proof, &stat.hash);
+        let mut output_wit = Witness::new(&output_stat);
+
+        // commit
+        commit(
+            &commit_key,
+            &mut output_stat,
+            &mut output_wit,
+            &mut proof,
+            &wit,
+        );
+
+        let com_params = proof.commit_params;
+        let Commitments::Tail { inner, garbage } = proof.commitments else {
+            panic!("proof.commitments is NoTail");
+        };
+
+        // inner commitment is T_1 || ... || T_r: each T_i is
+        // t_i (size = com_param_1) || many zeros (size = (z_len - 1) * com_param_1)
+        assert_eq!(
+            inner.0.len(),
+            com_params.z_length * stat.r * com_params.commit_rank_1
+        );
+
+        // garbage is r(r+1)/2 coefficients
+        let r = output_stat.r;
+        assert_eq!(garbage.0.len(), r * (r + 1) / 2);
+    }
+
+    #[test]
+    fn commit_no_tail_dimensions() {
+        let r: usize = 5;
+        let dim: usize = 5;
+        let tail = false;
+        let (wit, mut proof, stat) = random_context(r, dim, tail);
+
+        let (mut output_stat, commit_key) = Statement::new(&proof, &stat.hash);
+        let mut output_wit = Witness::new(&output_stat);
+
+        // commit
+        commit(
+            &commit_key,
+            &mut output_stat,
+            &mut output_wit,
+            &mut proof,
+            &wit,
+        );
+
+        let com_params = proof.commit_params;
+        let Commitments::NoTail { inner, u1, u2: _ } = proof.commitments else {
+            panic!("proof.commitments is NoTail");
+        };
+
+        // inner commitment is T_1 || ... || T_r: each T_i is
+        // t_i (size = com_rank_1) || many zeros (size = (z_len - 1) * com_rank_1)
+        assert_eq!(
+            inner.0.len(),
+            com_params.z_length * stat.r * com_params.commit_rank_1
+        );
+
+        assert_eq!(u1.0.len(), com_params.commit_rank_2);
     }
 }

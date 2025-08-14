@@ -40,8 +40,7 @@ impl PolyVec {
 
     /// Decompose a `PolyVec` in the base `2^base`. Return a list of `len` `PolyVec`s.
     pub fn decomp(&self, base: usize, len: usize) -> Vec<Self> {
-        let length = (LOG_PRIME as usize).div_ceil(base);
-        let mut result: Vec<PolyVec> = vec![PolyVec::new(); length];
+        let mut result: Vec<PolyVec> = vec![PolyVec::new(); len];
 
         for poly in &self.0 {
             for (i, small_poly) in poly.decompose(base, len).into_iter().enumerate() {
@@ -173,7 +172,7 @@ impl PolyMatrix {
         }
         if output.len() != self.0.len() {
             panic!(
-                "Storing matrix to incompatible vector: matrix colums = {}, vector length = {}",
+                "Storing matrix mul result to incompatible vector: matrix colums = {}, vector length = {}",
                 self.0.len(),
                 output.len()
             );
