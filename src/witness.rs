@@ -41,6 +41,53 @@ impl Witness {
         Self::new_raw(r, dim)
     }
 
+    /// Decompose a witness `(s_1, ..., s_r)` in `base`: `s_i = sum(k, (base ^
+    /// k) s_ik)`. Return a new witness `(s_{1, 1}, ..., s_{r, 1}, ..., s_{1,
+    /// len}, ..., s_{r, len})`.
+    pub fn decomp(self, base: usize, len: usize) -> Self {
+        let mut chunks: Vec<Vec<PolyVec>> = vec![Vec::with_capacity(self.r); len];
+        let mut norm_chunks: Vec<Vec<u128>> = vec![Vec::with_capacity(self.r); len];
+
+        for v in self.vectors {
+            for (i, small_v) in v.decomp(base, len).into_iter().enumerate() {
+                norm_chunks[i].push(small_v.norm_square());
+                chunks[i].push(small_v);
+            }
+        }
+
+        let mut vectors: Vec<PolyVec> = Vec::with_capacity(self.r * len);
+        let mut norm_square: Vec<u128> = Vec::with_capacity(self.r * len);
+
+        chunks
+            .into_iter()
+            .for_each(|mut chunk| vectors.append(&mut chunk));
+
+        norm_chunks
+            .into_iter()
+            .for_each(|mut chunk| norm_square.append(&mut chunk));
+
+        Self {
+            r: len * self.r,
+            dim: self.dim,
+            norm_square,
+            vectors,
+        }
+    }
+
+    /// Append `other` witness to `self`.
+    pub fn concat(&mut self, other: &mut Self) {
+        if self.dim != other.dim {
+            panic!(
+                "witness concatenation: dimensions don't match (self: {:?}, other: {:?})",
+                self.dim, other.dim
+            );
+        }
+
+        self.r += other.r;
+        self.norm_square.append(&mut other.norm_square);
+        self.vectors.append(&mut other.vectors);
+    }
+
     /// Compute linear garbage terms: a vector of size `r(r+1)/2` built from
     /// `self` and `constraint.linear_part`.
     pub fn linear_garbage(&self, constraint: &Constraint) -> PolyVec {
@@ -58,7 +105,7 @@ impl Witness {
         result
     }
 
-    /// Compute linear garbage terms: a vector of size `r(r+1)/2` containing all
+    /// Compute quadratic garbage terms: a vector of size `r(r+1)/2` containing all
     /// scalar products `< self.vectors[i], self.vectors[j] >` for `0 <= j <= i
     /// < r`.
     pub fn quadratic_garbage(&self) -> PolyVec {
