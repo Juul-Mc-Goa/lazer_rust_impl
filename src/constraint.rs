@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::{
     constants::{LOG_PRIME, PRIME_BYTES_LEN},
     jl_matrix::JLMatrix,
@@ -34,6 +36,64 @@ impl Constraint {
     }
     pub fn new() -> Self {
         Self::new_raw(1)
+    }
+
+    /// Consume `self` to create a new equivalent constraint on the decomposed
+    /// witness.
+    pub fn decomp(self, base: usize, len: usize) -> Self {
+        let r = self.linear_part.len();
+
+        // quadratic part
+        let mut quad_hashmap: HashMap<(usize, usize), PolyRingElem> = HashMap::new();
+
+        for (i, j, coef) in self.quadratic_part.0 {
+            // decompose s_i = sum(k, (2 ^ (base * k)) s_ik)
+            for k in 0..len {
+                let new_i = i + k * r;
+
+                // decompose s_j = sum(l, (2 ^ (base * l)) s_jl)
+                for l in 0..len {
+                    let new_j = j + l * r;
+
+                    let mut to_add = BaseRingElem::from(1 << (base * (k + l))) * &coef;
+                    if k != l {
+                        to_add *= BaseRingElem::from(2);
+                    }
+
+                    quad_hashmap
+                        .entry((new_i, new_j))
+                        .and_modify(|c| *c += &to_add)
+                        .or_insert(to_add);
+                }
+            }
+        }
+
+        let quadratic_part = SparsePolyMatrix(
+            quad_hashmap
+                .into_iter()
+                .map(|(k, v)| (k.0, k.1, v))
+                .collect(),
+        );
+
+        // linear part
+        let mut to_append = self.linear_part.clone();
+        let mut linear_part: Vec<PolyVec> = Vec::with_capacity(len * r);
+
+        for _ in 0..len {
+            linear_part.extend_from_slice(&to_append);
+
+            // multiply to_append by 2^base
+            to_append
+                .iter_mut()
+                .for_each(|polyvec| polyvec.mul_assign(BaseRingElem::from(1 << base)));
+        }
+
+        Self {
+            degree: self.degree,
+            quadratic_part,
+            linear_part,
+            constant: self.constant,
+        }
     }
 
     /// Create 256 linear constraints from a `JLMatrix` array of size `r` and `r` vectors.
