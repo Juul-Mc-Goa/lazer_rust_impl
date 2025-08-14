@@ -85,6 +85,8 @@ pub fn project(statement: &mut Statement, proof: &mut Proof, wit: Witness) -> Ve
 
     while projection_too_big || coef_too_big {
         jl_matrices = Vec::new();
+        proof.projection.fill(0.into());
+
         let mut cipher =
             Aes128Ctr64LE::new(&hashbuf_right.into(), &proof.jl_nonce.to_le_bytes().into());
         proof.projection.fill(BaseRingElem::zero());
@@ -103,11 +105,14 @@ pub fn project(statement: &mut Statement, proof: &mut Proof, wit: Witness) -> Ve
         coef_too_big = proof
             .projection
             .iter()
-            .any(|coord| coord.element >= max_proj_coord);
+            .any(|coord| coord.abs() >= max_proj_coord);
         projection_too_big = proof
             .projection
             .iter()
-            .map(|coord| coord.element as u128 * coord.element as u128)
+            .map(|coord| {
+                let abs = coord.abs() as u128;
+                abs * abs
+            })
             .sum::<u128>()
             > norm_square;
     }

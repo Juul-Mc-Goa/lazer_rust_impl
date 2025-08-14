@@ -1,9 +1,10 @@
-use rand::seq::{IndexedRandom, IteratorRandom};
+use rand::seq::IteratorRandom;
 
 use crate::{
-    commit::Commitments,
+    commit::{Commitments, commit},
     constraint::Constraint,
     linear_algebra::{PolyVec, SparsePolyMatrix},
+    project::project,
     proof::Proof,
     ring::PolyRingElem,
     statement::Statement,
@@ -32,7 +33,7 @@ mod dachshund;
 mod project;
 mod recursive_prover;
 
-fn generate_random_statement(r: usize, dim: usize) -> Statement {
+fn random_context(r: usize, dim: usize, tail: bool) -> (Witness, Proof, Statement) {
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
 
@@ -44,7 +45,12 @@ fn generate_random_statement(r: usize, dim: usize) -> Statement {
     let mut squared_norm_bound: u128 = 0;
 
     for _ in 0..r {
-        let new_s = PolyVec::random(dim, &mut rng);
+        // let new_s = PolyVec::random(dim, &mut rng);
+        let new_s = PolyVec(
+            (0..dim)
+                .map(|_| PolyRingElem::challenge(&mut rng))
+                .collect(),
+        );
 
         wit_dim.push(dim);
 
@@ -61,7 +67,6 @@ fn generate_random_statement(r: usize, dim: usize) -> Statement {
         vectors: wit_vectors,
     };
 
-    let tail = true;
     let proof = Proof::new(witness.clone(), 1, tail);
 
     let mut constant = PolyRingElem::zero();
@@ -86,29 +91,51 @@ fn generate_random_statement(r: usize, dim: usize) -> Statement {
     }
 
     constant = -constant;
-    let dim_inner = r * proof.commit_params.uniform_length * proof.commit_params.commit_rank_1;
+    let commit_params = proof.commit_params.clone();
+    let dim_inner = r * commit_params.uniform_length * commit_params.commit_rank_1;
 
-    Statement {
-        r,
-        dim,
-        dim_inner,
-        tail,
-        commit_params: proof.commit_params,
-        commitments: Commitments::new(tail),
-        challenges: Vec::new(),
-        constraint: Constraint {
-            degree: 1,
-            quadratic_part: quadratic_part,
-            linear_part: linear_part,
-            constant: constant,
+    (
+        witness,
+        proof,
+        Statement {
+            r,
+            dim,
+            dim_inner,
+            tail,
+            commit_params,
+            commitments: Commitments::new(tail),
+            challenges: Vec::new(),
+            constraint: Constraint {
+                degree: 1,
+                quadratic_part: quadratic_part,
+                linear_part: linear_part,
+                constant: constant,
+            },
+            squared_norm_bound,
+            hash: [0; 16],
         },
-        squared_norm_bound,
-        hash: [0; 16],
-    }
+    )
 }
 
 fn main() {
-    let random_stat = generate_random_statement(10, 30);
+    let (wit, mut proof, stat) = random_context(10, 30, false);
 
-    println!("{random_stat:?}");
+    println!("generated random witness, proof, statement");
+    println!("Predicted witness norm: {}", proof.norm_square);
+
+    let (mut output_stat, commit_key) = Statement::new(&proof, &stat.hash);
+    let mut output_wit = Witness::new(&output_stat);
+
+    // commit
+    commit(
+        &commit_key,
+        &mut output_stat,
+        &mut output_wit,
+        &mut proof,
+        &wit,
+    );
+
+    println!("committed");
+
+    project(&mut output_stat, &mut proof, wit);
 }

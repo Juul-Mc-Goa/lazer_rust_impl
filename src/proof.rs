@@ -56,7 +56,6 @@ fn z_decompose(
 
     // compute variance of the coordinates (over A_p) of z.
     let mut var_z: u128 = norm_square.iter().sum();
-    println!("varz: {var_z}, log2: {}", var_z.ilog2());
     // average square of each coefficient:
     var_z /= split_dim as u128 * DEGREE as u128;
     // times the variance of the challenges:
@@ -190,18 +189,14 @@ fn commit_rank_1_total_norm(
 
         let t_rank = new_r * commit_rank_1;
 
-        println!(
-            "var decomp: {}, var high: {}",
-            var_decomp(z_base, z_len).ilog2(),
-            var_highest(z_base, z_len, varz).ilog2(),
-        );
         total_norm_square =
             (var_decomp(z_base, z_len) + var_highest(z_base, z_len, varz)) * split_dim as u128;
 
         if !is_tail {
             // quadratic contribution: linear coefs
+            let shr_amount: u32 = (unif_base * (unif_len - 1)) as u32;
             total_norm_square += (var_decomp(unif_base, unif_len)
-                + (1 << 2 * (LOG_PRIME as u128 - unif_base * (unif_len - 1))) / 12)
+                + (1_u128 << 2 * LOG_PRIME as u128).unbounded_shr(shr_amount) / 12)
                 * (t_rank + quad_rank) as u128;
         }
 
@@ -213,11 +208,6 @@ fn commit_rank_1_total_norm(
         }
 
         total_norm_square *= DEGREE as u128;
-
-        println!(
-            "log(total_norm_square): {}",
-            (total_norm_square as f64).log2()
-        );
 
         // if it's sis secure, then commit_rank_1 is good: break
         if sis_secure(
@@ -284,16 +274,6 @@ fn commit_2_u1_u2(
         };
         u2_len = 2 * new_r - 1;
 
-        let left = (u1_len + u2_len) * LOG_PRIME as usize;
-        let right = (1.1 * (split_dim as f64) * ((varz as f64).log2() / 2.0 + 2.05)) as usize;
-        println!("com_rank_1: {commit_rank_1}, r: {new_r}");
-        println!("u1_len: {u1_len}, u2_len: {u2_len}");
-        println!("left: {left}, right: {right}");
-        println!(
-            "split_dim: {split_dim}, log_varz: {}\n",
-            (varz as f64).log2()
-        );
-
         if commit_rank_1 <= 32
             && (u1_len + u2_len) * LOG_PRIME as usize
                 <= (1.1 * (split_dim as f64) * ((varz as f64).log2() / 2.0 + 2.05)) as usize
@@ -341,8 +321,6 @@ impl Proof {
                 dim[i] = witness.dim[i];
                 norm_square[i] = witness.norm_square[i];
                 chunks[i] = if quadratic != 0 { 1 } else { 0 };
-
-                println!("log norm_square[i]: {}", (norm_square[i] as f64).log2());
             }
 
             chunks[r - 1] = 1;
@@ -397,13 +375,12 @@ impl Proof {
                 max_dim,
             );
 
-            (uniform_length, uniform_base) = if !is_tail {
-                (
-                    (LOG_PRIME as usize + 2 * z_base / 3) / z_base,
-                    (LOG_PRIME as usize + z_length / 2) / z_length,
-                )
+            if !is_tail {
+                uniform_length = (LOG_PRIME as usize + 2 * z_base / 3) / z_base;
+                uniform_base = (LOG_PRIME as usize + z_length / 2) / uniform_length;
             } else {
-                (1, LOG_PRIME as usize)
+                uniform_length = 1;
+                uniform_base = LOG_PRIME as usize;
             };
 
             // decompose quadratic garbage
