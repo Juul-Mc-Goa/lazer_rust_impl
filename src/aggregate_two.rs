@@ -95,7 +95,7 @@ impl RecursedVector {
         // update self.t_part
         for k in 0..com_params.uniform_length {
             for i in 0..input_stat.r {
-                self.t_part[k][i] = matrices_b[i][k].apply_transpose(&c_1);
+                self.t_part[k][i] = matrices_b[k][i].apply_transpose(&c_1);
             }
         }
 
@@ -121,7 +121,7 @@ impl RecursedVector {
     ) {
         for k in 0..com_params.uniform_length {
             for i in 0..input_stat.r {
-                for (j, poly) in matrices_d[i][k].apply_transpose(&c_2).0.iter().enumerate() {
+                for (j, poly) in matrices_d[k][i].apply_transpose(&c_2).0.iter().enumerate() {
                     self.h_part[k].0[i * (i + 1) / 2 + j] += poly;
                 }
             }
@@ -250,9 +250,10 @@ impl RecursedVector {
 
         // update self.h_part
         for i in 0..input_stat.r {
+            let h_ii_idx = i * (i + 1) / 2 + i;
             let mut scaled_coef = c_agg.clone();
             for k in 0..com_params.uniform_length {
-                self.h_part[k].0[i * (i + 1) + i] += &scaled_coef;
+                self.h_part[k].0[h_ii_idx] += &scaled_coef;
                 scaled_coef = scaled_coef * unif_base_mod_p;
             }
         }

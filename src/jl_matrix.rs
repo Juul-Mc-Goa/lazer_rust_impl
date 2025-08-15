@@ -72,7 +72,7 @@ impl JLMatrix {
 
         for packed_v in self.data.chunks_exact(self.dim) {
             let mut new_v = PolyVec::new();
-            for packed_poly in packed_v.chunks_exact(DEGREE as usize >> 8) {
+            for packed_poly in packed_v.chunks_exact(DEGREE as usize >> 3) {
                 let mut new_poly_vec: Vec<u64> = Vec::new();
 
                 for bit in 0..(DEGREE as usize) {

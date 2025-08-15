@@ -41,6 +41,13 @@ impl Witness {
         Self::new_raw(r, dim)
     }
 
+    pub fn print(&self) {
+        println!("Witness:");
+        println!("  r: {}", self.r);
+        println!("  dim: {:?}", self.dim);
+        // println!("  vectors: {:?}", self.vectors);
+    }
+
     /// Decompose a witness `(s_1, ..., s_r)` in `base`: `s_i = sum(k, (base ^
     /// k) s_ik)`. Return a new witness `(s_{1, 1}, ..., s_{r, 1}, ..., s_{1,
     /// len}, ..., s_{r, len})`.

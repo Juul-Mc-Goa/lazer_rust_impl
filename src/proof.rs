@@ -1,6 +1,7 @@
 use crate::{
     commit::{CommitParams, Commitments},
     constants::{CHALLENGE_NORM, DEGREE, LOG_DELTA, LOG_PRIME, SLACK, TAU1, TAU2},
+    linear_algebra::PolyVec,
     ring::{BaseRingElem, PolyRingElem},
     witness::Witness,
 };
@@ -54,7 +55,6 @@ fn z_decompose(
 
     let new_r: usize = new_chunks.iter().sum();
 
-    // compute variance of the coordinates (over A_p) of z.
     let mut var_z: u128 = norm_square.iter().sum();
     // average square of each coefficient:
     var_z /= split_dim as u128 * DEGREE as u128;
@@ -67,10 +67,10 @@ fn z_decompose(
             13,
             6.0 * CHALLENGE_NORM as f64
                 * *SLACK
-                * (2.0 * (var_challenges as f64) * DEGREE as f64).sqrt()
-                * (var_z as f64 * split_dim as f64),
+                * (2.0 * var_challenges as f64 * var_z as f64 * split_dim as f64 * DEGREE as f64)
+                    .sqrt(),
         );
-    // check that average squared norm is less than JL_MAX_NORM ?
+    // decompose if average squared coefficient is greater than JL_MAX_NORM
     decompose |= DEGREE as u128 * var_z > (1 << 28);
 
     let twelve_log2 = |i| (12_f64 * i as f64).log2();
@@ -178,8 +178,8 @@ fn commit_rank_1_total_norm(
     let mut commit_rank_1: usize = 0;
     let mut total_norm_square: u128 = 0;
 
-    // variance of a vector with length coordinates, each uniform in
-    // 0..2^b
+    // variance of a vector with `length` coordinates, each uniform in
+    // 0..2^base
     let var_decomp = |base: u128, length: u128| (length << 2 * base) / 12;
     // variance of the highest digit
     let var_highest = |base: u128, length: u128, var: u128| var >> (base * (length - 1));
@@ -466,6 +466,34 @@ impl Proof {
             projection: [0.into(); 256],
             lifting_poly: Vec::new(),
             norm_square: total_norm_square,
+        }
+    }
+
+    /// Split `witness` according to `self.split_dim`
+    pub fn pack_witness(&self, witness: &Witness) -> Witness {
+        assert_eq!(
+            self.chunks.len(),
+            witness.vectors.len(),
+            "incompatible dimensions between proof chunks and witness size"
+        );
+
+        let mut r: usize = 0;
+        let mut new_vec: Vec<PolyVec> = Vec::new();
+        let mut norm_square: Vec<u128> = Vec::new();
+
+        for (w, chunk) in witness.vectors.iter().zip(self.chunks.iter()) {
+            for new_w in w.clone().split(w.0.len().div_ceil(*chunk)) {
+                norm_square.push(new_w.norm_square());
+                new_vec.push(new_w);
+                r += 1;
+            }
+        }
+
+        Witness {
+            r,
+            dim: self.dim.clone(),
+            norm_square,
+            vectors: new_vec,
         }
     }
 }

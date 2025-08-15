@@ -4,7 +4,7 @@ use rand::seq::SliceRandom;
 use rand_chacha::ChaCha8Rng;
 
 use crate::constants::{DEGREE, ONE_HALF_MOD_PRIME, PRIME, PRIME_BYTES_LEN, TAU1, TAU2};
-use std::fmt::{Debug, Formatter};
+use std::fmt::Debug;
 use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
 /// An element of `Z/pZ`, where `p = PRIME`.
@@ -43,8 +43,13 @@ impl AsRef<PolyRingElem> for PolyRingElem {
 }
 
 impl Debug for BaseRingElem {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.element)
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let small = if 2 * self.element < PRIME {
+            self.element as i64
+        } else {
+            self.element as i64 - PRIME as i64
+        };
+        write!(f, "{small}")
     }
 }
 

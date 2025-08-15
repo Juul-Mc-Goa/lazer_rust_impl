@@ -49,7 +49,7 @@ pub fn add_apply_jl_matrix(
 /// mode, store the nonce in `proof.jl_nonce`.  Hash the resulting vector and
 /// store it in `statement.hash`.
 #[allow(dead_code)]
-pub fn project(statement: &mut Statement, proof: &mut Proof, wit: Witness) -> Vec<JLMatrix> {
+pub fn project(statement: &mut Statement, proof: &mut Proof, wit: &Witness) -> Vec<JLMatrix> {
     // compute total norm_square for witness
     let norm_square: u128 = wit.norm_square.iter().map(|x| *x as u128).sum();
 

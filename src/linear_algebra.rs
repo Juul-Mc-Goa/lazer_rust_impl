@@ -1,6 +1,6 @@
 use std::ops::{Mul, MulAssign};
 
-use crate::{constants::LOG_PRIME, ring::PolyRingElem};
+use crate::ring::PolyRingElem;
 
 use rand_chacha::ChaCha8Rng;
 

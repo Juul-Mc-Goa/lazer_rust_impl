@@ -110,7 +110,7 @@ impl CommitKey {
             })
             .collect::<Vec<_>>();
         let matrices_c: Vec<Vec<PolyMatrix>> = (0..com_params.quadratic_length)
-            .map(|k| {
+            .map(|_k| {
                 (0..r)
                     .map(|i| PolyMatrix::random(&mut rng, com_params.commit_rank_2, i + 1))
                     .collect::<Vec<_>>()
@@ -128,7 +128,7 @@ impl CommitKey {
             }
         } else {
             let matrices_d: Vec<Vec<PolyMatrix>> = (0..com_params.uniform_length)
-                .map(|k| {
+                .map(|_k| {
                     (0..r)
                         .map(|i| PolyMatrix::random(&mut rng, com_params.commit_rank_2, i + 1))
                         .collect::<Vec<_>>()
@@ -234,7 +234,7 @@ pub fn commit(
     let mut inner = PolyVec::new();
     let mut garbage = PolyVec::new();
     let mut u1 = PolyVec::zero(com_params.commit_rank_2);
-    let mut u2 = PolyVec::zero(com_params.commit_rank_2);
+    let u2 = PolyVec::zero(com_params.commit_rank_2);
 
     let matrix_a: &PolyMatrix;
     let matrices_b: &Vec<Vec<PolyMatrix>>;

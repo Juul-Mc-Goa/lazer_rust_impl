@@ -121,11 +121,11 @@ pub fn amortize(
     output_stat: &mut Statement,
     output_wit: &mut Witness,
     proof: &mut Proof,
-    tmp_wit: &Witness,
+    packed_wit: &Witness,
     commit_key: &CommitKey,
 ) {
     if proof.tail {
-        amortize_tail(output_stat, output_wit, proof, tmp_wit);
+        amortize_tail(output_stat, output_wit, proof, packed_wit);
     }
 
     let Statement {
@@ -170,11 +170,11 @@ pub fn amortize(
     for k in 0..dim {
         for i in 0..r {
             let coef_ik = &linear_part[i].0[k];
-            let wit_ik = &tmp_wit.vectors[i].0[k];
+            let wit_ik = &packed_wit.vectors[i].0[k];
             h.0.push(coef_ik * wit_ik);
-            for j in i..r {
+            for j in 0..i {
                 let coef_jk = &linear_part[j].0[k];
-                let wit_jk = &tmp_wit.vectors[j].0[k];
+                let wit_jk = &packed_wit.vectors[j].0[k];
                 h.0.push(coef_ik * wit_jk + coef_jk * wit_ik);
             }
         }
@@ -205,9 +205,9 @@ pub fn amortize(
 
     // compute u2
     *u2 = PolyVec::zero(com_rank_2);
-    for (h_digit, mat_level) in h.iter().zip(matrices_d.iter()) {
+    for (h_digit, d_level) in h.iter().zip(matrices_d.iter()) {
         for i in 0..r {
-            mat_level[i].add_apply_raw(&mut u2.0, &h_digit.0[i..]);
+            d_level[i].add_apply_raw(&mut u2.0, &h_digit.0[..=i]);
         }
     }
 
@@ -229,7 +229,7 @@ pub fn amortize(
 
     // compute z
     let mut z = PolyVec::zero(dim);
-    tmp_wit
+    packed_wit
         .vectors
         .iter()
         .zip(challenges.iter())
@@ -251,7 +251,9 @@ pub fn amortize(
     output_wit.vectors = new_wit;
 
     for i in 0..=z_len {
-        output_wit.norm_square[i] = output_wit.vectors[i].norm_square();
+        output_wit
+            .norm_square
+            .push(output_wit.vectors[i].norm_square());
         *squared_norm_bound += output_wit.norm_square[i];
     }
 
