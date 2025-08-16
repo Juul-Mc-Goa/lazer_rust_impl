@@ -1,10 +1,11 @@
-use rand::seq::IteratorRandom;
+use rand::{Rng, SeedableRng, seq::IteratorRandom};
+use rand_chacha::ChaCha8Rng;
 
 use crate::{
     aggregate_one::aggregate_constant_coeff,
     aggregate_two::aggregate_input_stat,
     amortize::amortize,
-    commit::{Commitments, commit},
+    commit::{CommitKey, Commitments, commit},
     constraint::Constraint,
     linear_algebra::{PolyVec, SparsePolyMatrix},
     project::project,
@@ -35,12 +36,26 @@ mod commit;
 mod dachshund;
 mod project;
 mod recursive_prover;
+mod verify;
 
-fn random_context(r: usize, dim: usize, tail: bool) -> (Witness, Proof, Statement) {
+type Seed = <ChaCha8Rng as SeedableRng>::Seed;
+
+/// Generate seed with `std::rand`.
+#[allow(dead_code)]
+fn random_seed() -> Seed {
+    let mut seed: <ChaCha8Rng as SeedableRng>::Seed = Default::default();
+    rand::rng().fill(&mut seed);
+
+    seed
+}
+
+/// Generate random context using `seed`.
+fn generate_context(r: usize, dim: usize, tail: bool, seed: Seed) -> (Witness, Proof, Statement) {
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
 
-    let mut rng = ChaCha8Rng::from_os_rng();
+    // let mut rng = ChaCha8Rng::from_os_rng();
+    let mut rng = ChaCha8Rng::from_seed(seed.clone());
 
     let mut wit_vectors: Vec<PolyVec> = Vec::new();
     let mut norm_square: Vec<u128> = Vec::new();
@@ -99,6 +114,7 @@ fn random_context(r: usize, dim: usize, tail: bool) -> (Witness, Proof, Statemen
 
     constant = -constant;
     let commit_params = proof.commit_params.clone();
+    let commit_key = CommitKey::new(tail, r, dim, &commit_params, seed);
     let dim_inner = r * commit_params.uniform_length * commit_params.commit_rank_1;
 
     (
@@ -120,12 +136,13 @@ fn random_context(r: usize, dim: usize, tail: bool) -> (Witness, Proof, Statemen
             },
             squared_norm_bound,
             hash: [0; 16],
+            commit_key,
         },
     )
 }
 
 fn main() {
-    let (wit, mut proof, stat) = random_context(10, 30, false);
+    let (wit, mut proof, stat) = generate_context(10, 30, false, Default::default());
 
     println!("Generated random context");
     println!(
@@ -135,17 +152,11 @@ fn main() {
     );
     println!("  split dimension: {}", proof.split_dim);
 
-    let (mut output_stat, commit_key) = Statement::new(&proof, &stat.hash);
+    let mut output_stat = Statement::new(&proof, &stat.hash, None);
     let mut output_wit = Witness::new(&output_stat);
 
     // commit
-    commit(
-        &commit_key,
-        &mut output_stat,
-        &mut output_wit,
-        &mut proof,
-        &wit,
-    );
+    commit(&mut output_stat, &mut output_wit, &mut proof, &wit);
     println!("Committed");
     let packed_wit = proof.pack_witness(&wit);
     println!("new witness:");
@@ -156,16 +167,10 @@ fn main() {
 
     let dim = output_stat.dim;
     aggregate_constant_coeff(&mut output_stat, &mut proof, &wit, dim, &jl_matrices);
-    aggregate_input_stat(&mut output_stat, &proof, &stat, &commit_key);
+    aggregate_input_stat(&mut output_stat, &proof, &stat);
     println!("Aggregated");
 
-    amortize(
-        &mut output_stat,
-        &mut output_wit,
-        &mut proof,
-        &packed_wit,
-        &commit_key,
-    );
+    amortize(&mut output_stat, &mut output_wit, &mut proof, &packed_wit);
 
     println!("\nOutput statement:");
     output_stat.print();

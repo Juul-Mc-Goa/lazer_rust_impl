@@ -482,7 +482,7 @@ impl Proof {
         let mut norm_square: Vec<u128> = Vec::new();
 
         for (w, chunk) in witness.vectors.iter().zip(self.chunks.iter()) {
-            for new_w in w.clone().split(w.0.len().div_ceil(*chunk)) {
+            for new_w in w.clone().into_chunks(w.0.len().div_ceil(*chunk)) {
                 norm_square.push(new_w.norm_square());
                 new_vec.push(new_w);
                 r += 1;

@@ -1,4 +1,5 @@
 use crate::{
+    Seed,
     commit::{CommitKey, CommitParams, Commitments},
     constraint::Constraint,
     proof::Proof,
@@ -22,6 +23,7 @@ pub struct Statement {
     pub constraint: Constraint,
     pub squared_norm_bound: u128,
     pub hash: [u8; 16],
+    pub commit_key: CommitKey,
 }
 
 /// Computes `len.div_ceil(deg2) * deg2` where `deg2 = next_2_power(deg)`.
@@ -38,7 +40,7 @@ pub fn extlen(len: usize, deg: usize) -> usize {
 #[allow(dead_code)]
 impl Statement {
     /// Create a new `Statement` and the commitment key.
-    pub fn new(proof: &Proof, hash: &[u8; 16]) -> (Self, CommitKey) {
+    pub fn new(proof: &Proof, hash: &[u8; 16], seed: Option<Seed>) -> Self {
         let r: usize = proof.chunks.iter().sum();
 
         let mut max_dim: usize = 0;
@@ -70,21 +72,21 @@ impl Statement {
         // garbage dimmension
         dim_inner += (unif_len + quad_len) * r * (r + 1) / 2;
 
-        (
-            Self {
-                r,
-                dim: max_dim,
-                dim_inner,
-                tail: proof.tail,
-                commit_params: com_params,
-                commitments: Commitments::new(proof.tail),
-                challenges: Vec::new(),
-                constraint: Constraint::new(),
-                squared_norm_bound: 0,
-                hash: *hash,
-            },
-            CommitKey::new(proof.tail, r, max_dim, com_params),
-        )
+        let seed = seed.unwrap_or_default();
+
+        Self {
+            r,
+            dim: max_dim,
+            dim_inner,
+            tail: proof.tail,
+            commit_params: com_params,
+            commitments: Commitments::new(proof.tail),
+            challenges: Vec::new(),
+            constraint: Constraint::new(),
+            squared_norm_bound: 0,
+            hash: *hash,
+            commit_key: CommitKey::new(proof.tail, r, max_dim, &com_params, seed),
+        }
     }
 
     pub fn as_mut_parts(
@@ -143,7 +145,12 @@ impl Statement {
             self.constraint.quadratic_part.0.len(),
             self.constraint.linear_part.len(),
         );
-        println!("squared_norm_bound: {}", self.squared_norm_bound);
+        println!(
+            "squared_norm_bound: {}, (ie around 2^{})",
+            self.squared_norm_bound,
+            self.squared_norm_bound.ilog2()
+        );
         println!("hash: {:?}", self.hash);
+        println!("commit key: \n{:?}", self.commit_key);
     }
 }

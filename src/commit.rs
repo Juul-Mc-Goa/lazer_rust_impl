@@ -1,4 +1,5 @@
 use crate::{
+    Seed,
     linear_algebra::{PolyMatrix, PolyVec},
     proof::Proof,
     ring::PolyRingElem,
@@ -63,6 +64,73 @@ pub enum CommitKeyData {
     },
 }
 
+impl std::fmt::Debug for CommitKeyData {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        use CommitKeyData::*;
+        match self {
+            Tail {
+                matrix_a,
+                matrices_b,
+                matrices_c,
+            } => {
+                write!(f, "data: tail\n")?;
+                write!(
+                    f,
+                    "  matrix_a: matrix of size ({}, {})\n",
+                    matrix_a.0.len(),
+                    matrix_a.0[0].len()
+                )?;
+                write!(
+                    f,
+                    "  matrices_b: {} x {} matrices\n",
+                    matrices_b.len(),
+                    matrices_b[0].len()
+                )?;
+                write!(
+                    f,
+                    "  matrices_c: {} x {} matrices\n",
+                    matrices_c.len(),
+                    matrices_c[0].len()
+                )?;
+            }
+            NoTail {
+                matrix_a,
+                matrices_b,
+                matrices_c,
+                matrices_d,
+            } => {
+                write!(f, "data: no tail\n")?;
+                write!(
+                    f,
+                    "  matrix_a:   size ({}, {})\n",
+                    matrix_a.0.len(),
+                    matrix_a.0[0].len()
+                )?;
+                write!(
+                    f,
+                    "  matrices_b: {} x {} matrices\n",
+                    matrices_b.len(),
+                    matrices_b[0].len()
+                )?;
+                write!(
+                    f,
+                    "  matrices_c: {} x {} matrices\n",
+                    matrices_c.len(),
+                    matrices_c[0].len()
+                )?;
+                write!(
+                    f,
+                    "  matrices_d: {} x {} matrices",
+                    matrices_d.len(),
+                    matrices_d[0].len()
+                )?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
 #[allow(dead_code)]
 pub struct CommitKey {
     /// The matrices used for commiting.
@@ -71,27 +139,17 @@ pub struct CommitKey {
     pub seed: <ChaCha8Rng as SeedableRng>::Seed,
 }
 
-#[allow(dead_code)]
-#[derive(Clone, Debug)]
-pub enum Commitments {
-    Tail {
-        inner: PolyVec,
-        garbage: PolyVec,
-    },
-    NoTail {
-        inner: PolyVec,
-        u1: PolyVec,
-        u2: PolyVec,
-    },
+impl std::fmt::Debug for CommitKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "  seed: {:?}\n", self.seed)?;
+        write!(f, "  {:?}", self.data)?;
+        Ok(())
+    }
 }
 
 #[allow(dead_code)]
 impl CommitKey {
-    pub fn new(tail: bool, r: usize, dim: usize, com_params: CommitParams) -> Self {
-        // generate seed
-        let mut seed: <ChaCha8Rng as SeedableRng>::Seed = Default::default();
-        rand::rng().fill(&mut seed);
-
+    pub fn new(tail: bool, r: usize, dim: usize, com_params: &CommitParams, seed: Seed) -> Self {
         // generate data
         let mut rng = ChaCha8Rng::from_seed(seed);
 
@@ -148,6 +206,20 @@ impl CommitKey {
     }
 }
 
+#[allow(dead_code)]
+#[derive(Clone, Debug)]
+pub enum Commitments {
+    Tail {
+        inner: PolyVec,
+        garbage: PolyVec,
+    },
+    NoTail {
+        inner: PolyVec,
+        u1: PolyVec,
+        u2: PolyVec,
+    },
+}
+
 impl Commitments {
     pub fn new(tail: bool) -> Self {
         if tail {
@@ -161,6 +233,34 @@ impl Commitments {
                 u1: PolyVec::new(),
                 u2: PolyVec::new(),
             }
+        }
+    }
+
+    pub fn inner(&self) -> &PolyVec {
+        use Commitments::*;
+        match self {
+            Tail { inner, garbage: _ } => inner,
+            NoTail {
+                inner,
+                u1: _,
+                u2: _,
+            } => inner,
+        }
+    }
+
+    pub fn garbage(&self) -> Option<&PolyVec> {
+        use Commitments::*;
+        match self {
+            Tail { inner: _, garbage } => Some(garbage),
+            NoTail { .. } => None,
+        }
+    }
+
+    pub fn outer(&self) -> Option<(&PolyVec, &PolyVec)> {
+        use Commitments::*;
+        match self {
+            Tail { .. } => None,
+            NoTail { inner: _, u1, u2 } => Some((u1, u2)),
         }
     }
 }
@@ -216,7 +316,6 @@ fn inner_commit_no_tail(
 ///   - push a last element: `t || g || h`
 #[allow(dead_code)]
 pub fn commit(
-    commit_key: &CommitKey,
     output_stat: &mut Statement,
     output_wit: &mut Witness,
     proof: &mut Proof,
@@ -224,6 +323,7 @@ pub fn commit(
 ) {
     let r = input_wit.r;
     let com_params = &output_stat.commit_params;
+    let commit_key = &output_stat.commit_key;
 
     // resized witness
     let mut full_witness = vec![PolyVec(Vec::with_capacity(output_stat.dim)); output_stat.r];
@@ -428,17 +528,11 @@ mod tests {
         let tail = true;
         let (wit, mut proof, stat) = random_context(r, dim, tail);
 
-        let (mut output_stat, commit_key) = Statement::new(&proof, &stat.hash);
+        let mut output_stat = Statement::new(&proof, &stat.hash);
         let mut output_wit = Witness::new(&output_stat);
 
         // commit
-        commit(
-            &commit_key,
-            &mut output_stat,
-            &mut output_wit,
-            &mut proof,
-            &wit,
-        );
+        commit(&mut output_stat, &mut output_wit, &mut proof, &wit);
 
         let com_params = proof.commit_params;
         let Commitments::Tail { inner, garbage } = proof.commitments else {
@@ -464,17 +558,11 @@ mod tests {
         let tail = false;
         let (wit, mut proof, stat) = random_context(r, dim, tail);
 
-        let (mut output_stat, commit_key) = Statement::new(&proof, &stat.hash);
+        let mut output_stat = Statement::new(&proof, &stat.hash);
         let mut output_wit = Witness::new(&output_stat);
 
         // commit
-        commit(
-            &commit_key,
-            &mut output_stat,
-            &mut output_wit,
-            &mut proof,
-            &wit,
-        );
+        commit(&mut output_stat, &mut output_wit, &mut proof, &wit);
 
         let com_params = proof.commit_params;
         let Commitments::NoTail { inner, u1, u2: _ } = proof.commitments else {

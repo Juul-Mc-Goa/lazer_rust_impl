@@ -4,7 +4,7 @@ use rand::prelude::*;
 use rand_chacha::ChaCha8Rng;
 
 use crate::{
-    commit::{CommitKey, CommitKeyData, CommitParams, Commitments},
+    commit::{CommitKeyData, CommitParams, Commitments},
     linear_algebra::{PolyMatrix, PolyVec, SparsePolyMatrix},
     proof::Proof,
     ring::{BaseRingElem, PolyRingElem},
@@ -54,7 +54,7 @@ impl RecursedVector {
 
         // split each z_k into vectors of dimension `split_dim`
         for z_k in self.z_part {
-            result.append(&mut z_k.split(split_dim));
+            result.append(&mut z_k.into_chunks(split_dim));
         }
 
         // t, g, h only appear in linear constraints: we concat them into one
@@ -75,7 +75,7 @@ impl RecursedVector {
         }
 
         // split v into vectors of dimension `split_dim`
-        result.append(&mut v.split(split_dim));
+        result.append(&mut v.into_chunks(split_dim));
 
         result
     }
@@ -138,14 +138,14 @@ impl RecursedVector {
     ) {
         // matrix_part = -transpose(A) * c_z
         let mut matrix_part = matrix_a.apply_transpose(c_z);
-        matrix_part.0.iter_mut().for_each(|poly| poly.neg());
+        matrix_part.neg();
 
         let z_base_mod_p: BaseRingElem = (1 << com_params.z_base as u64).into();
 
         // update self.z_part
         for k in 0..com_params.z_length {
-            self.z_part[k].add_assign(&matrix_part);
-            matrix_part.mul_assign(z_base_mod_p);
+            self.z_part[k] += &matrix_part;
+            matrix_part *= &z_base_mod_p;
         }
 
         let unif_base_mod_p: BaseRingElem = (1 << com_params.uniform_base as u64).into();
@@ -153,11 +153,12 @@ impl RecursedVector {
         // update self.t_part
         for i in 0..input_stat.r {
             let mut t_i_part = c_z.clone();
-            t_i_part.mul_assign(input_stat.challenges[i].clone());
+            t_i_part *= &input_stat.challenges[i];
 
             for k in 0..com_params.uniform_length {
-                self.t_part[k][i].add_assign(&t_i_part);
-                t_i_part.mul_assign(unif_base_mod_p);
+                self.t_part[k][i] += &t_i_part;
+                // t_i_part.mul_assign(unif_base_mod_p);
+                t_i_part *= &unif_base_mod_p;
             }
         }
     }
@@ -202,8 +203,8 @@ impl RecursedVector {
             let mut k_part = part.clone();
 
             for k in 0..com_params.z_length {
-                self.z_part[k].add_assign(&k_part);
-                k_part.mul_assign(z_base_mod_p);
+                self.z_part[k] += &k_part;
+                k_part *= &z_base_mod_p;
             }
         }
 
@@ -271,12 +272,7 @@ impl RecursedVector {
 ///   5. `sum(i, c_i < lin_part[i], z >) = sum(ij, h_ij c_i c_j)`
 ///   6. `sum(ij, a_ij g_ij) + sum(i, h_ii) - b = 0`
 #[allow(dead_code)]
-pub fn aggregate_input_stat(
-    output_stat: &mut Statement,
-    proof: &Proof,
-    input_stat: &Statement,
-    commit_key: &CommitKey,
-) {
+pub fn aggregate_input_stat(output_stat: &mut Statement, proof: &Proof, input_stat: &Statement) {
     // update output_stat: set
     // witness <- decomp(z) || decomp(t) || decomp(g) || decomp(h)
     // and modify output_stat.constraint accordingly
@@ -315,6 +311,7 @@ pub fn aggregate_input_stat(
     let com_params = input_stat.commit_params;
     let com_rank1 = com_params.commit_rank_1;
     let com_rank2 = com_params.commit_rank_2;
+    let commit_key = &output_stat.commit_key;
 
     let mut hashbuf = [0_u8; 32];
     hashbuf[..16].copy_from_slice(&output_stat.hash);
@@ -393,7 +390,7 @@ pub fn aggregate_input_stat(
                     (-two).into()
                 };
 
-                coef = scale_factor * coef;
+                coef = &scale_factor * coef;
 
                 for chunk_idx in 0..chunks {
                     output_stat.constraint.quadratic_part.0.push((

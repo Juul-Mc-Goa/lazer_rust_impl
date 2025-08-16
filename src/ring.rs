@@ -145,6 +145,10 @@ impl PolyRingElem {
             .sum()
     }
 
+    pub fn is_zero(&self) -> bool {
+        self.element.iter().all(|coef| coef.element == 0)
+    }
+
     /// Divide by `2` modulo `p`.
     pub fn halve(&self) -> Self {
         Self {
@@ -395,6 +399,15 @@ impl Neg for PolyRingElem {
     }
 }
 
+impl Neg for &PolyRingElem {
+    type Output = PolyRingElem;
+    fn neg(self) -> Self::Output {
+        PolyRingElem {
+            element: self.element.iter().map(|coef| -*coef).collect(),
+        }
+    }
+}
+
 /// Sub two `BaseRingElem`.
 impl<T> Sub<T> for &BaseRingElem
 where
@@ -508,11 +521,11 @@ where
 
 impl<T> Mul<T> for BaseRingElem
 where
-    T: AsRef<BaseRingElem>,
+    BaseRingElem: Mul<T, Output = BaseRingElem>,
 {
     type Output = BaseRingElem;
     fn mul(self, other: T) -> BaseRingElem {
-        &self * other
+        self * other
     }
 }
 
@@ -533,21 +546,17 @@ where
     }
 }
 
-/// Scalar multiplication `PolyRingElem x BaseRingElem`.
-impl MulAssign<BaseRingElem> for PolyRingElem {
-    fn mul_assign(&mut self, other: BaseRingElem) {
-        self.element.iter_mut().for_each(|b| *b = *b * other);
+/// Scalar mul assign `PolyRingElem x BaseRingElem`.
+impl MulAssign<&BaseRingElem> for PolyRingElem {
+    fn mul_assign(&mut self, other: &BaseRingElem) {
+        self.element.iter_mut().for_each(|b| *b = &*b * other);
     }
 }
 
-/// Scalar multiplication `PolyRingElem x BaseRingElem`.
-impl<T> Mul<T> for PolyRingElem
-where
-    T: AsRef<BaseRingElem>,
-{
-    type Output = PolyRingElem;
-    fn mul(self, other: T) -> PolyRingElem {
-        &self * other
+/// Scalar mul assign `PolyRingElem x BaseRingElem`.
+impl MulAssign<BaseRingElem> for PolyRingElem {
+    fn mul_assign(&mut self, other: BaseRingElem) {
+        self.element.iter_mut().for_each(|b| *b = &*b * other);
     }
 }
 
@@ -560,14 +569,6 @@ impl Mul<&PolyRingElem> for &BaseRingElem {
 }
 
 /// Scalar multiplication `BaseRingElem x PolyRingElem`.
-impl Mul<&PolyRingElem> for BaseRingElem {
-    type Output = PolyRingElem;
-    fn mul(self, rhs: &PolyRingElem) -> Self::Output {
-        &self * rhs
-    }
-}
-
-/// Scalar multiplication `BaseRingElem x PolyRingElem`.
 impl Mul<PolyRingElem> for &BaseRingElem {
     type Output = PolyRingElem;
     fn mul(self, rhs: PolyRingElem) -> Self::Output {
@@ -575,11 +576,27 @@ impl Mul<PolyRingElem> for &BaseRingElem {
     }
 }
 
-/// Scalar multiplication `BaseRingElem x PolyRingElem`.
-impl Mul<PolyRingElem> for BaseRingElem {
+/// Polynomial mul assign.
+impl MulAssign<&PolyRingElem> for PolyRingElem {
+    fn mul_assign(&mut self, other: &PolyRingElem) {
+        let clone = self.clone();
+
+        for (i, coef) in other.element.iter().enumerate() {
+            let tmp = coef * clone.clone().mul_by_x_power(i as u64);
+            *self += tmp;
+        }
+    }
+}
+
+impl<T> Mul<T> for PolyRingElem
+where
+    PolyRingElem: MulAssign<T>,
+{
     type Output = PolyRingElem;
-    fn mul(self, rhs: PolyRingElem) -> Self::Output {
-        &self * &rhs
+    fn mul(self, other: T) -> Self::Output {
+        let mut new = self.clone();
+        new *= other;
+        new
     }
 }
 
@@ -595,14 +612,6 @@ impl Mul<&PolyRingElem> for &PolyRingElem {
         }
 
         result
-    }
-}
-
-/// Polynomial multiplication.
-impl Mul<&PolyRingElem> for PolyRingElem {
-    type Output = PolyRingElem;
-    fn mul(self, other: &PolyRingElem) -> Self::Output {
-        &self * other
     }
 }
 
@@ -652,7 +661,7 @@ mod tests {
     fn mul_base() {
         let a: BaseRingElem = (PRIME / 10).into();
         let b: BaseRingElem = 257.into();
-        let c: BaseRingElem = a * b;
+        let c: BaseRingElem = &a * &b;
 
         // computation done with ipython
         assert_eq!(769658139281, c.element);
@@ -686,7 +695,7 @@ mod tests {
         let a = PolyRingElem::from_vec_u64((1..65).collect());
         let result = PolyRingElem::from_vec_u64((1..65).map(|u| 2 * u).collect());
 
-        assert_eq!(scalar * a, result);
+        assert_eq!(&scalar * &a, result);
     }
 
     #[test]

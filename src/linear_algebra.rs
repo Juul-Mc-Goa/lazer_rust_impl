@@ -1,6 +1,6 @@
-use std::ops::{Mul, MulAssign};
+use std::ops::{Add, AddAssign, Mul, MulAssign, Neg};
 
-use crate::ring::PolyRingElem;
+use crate::ring::{BaseRingElem, PolyRingElem};
 
 use rand_chacha::ChaCha8Rng;
 
@@ -22,9 +22,19 @@ impl PolyVec {
         PolyVec(Vec::new())
     }
 
+    /// Create a null `PolyVec`.
+    pub fn zero(dim: usize) -> Self {
+        Self(vec![PolyRingElem::zero(); dim])
+    }
+
     /// Compute the sum of each squared coefficients (in `A_q`)
     pub fn norm_square(&self) -> u128 {
         self.0.iter().map(|r| r.norm_square()).sum()
+    }
+
+    /// Check if this `PolyVec` is the zero vector.
+    pub fn is_zero(&self) -> bool {
+        self.0.iter().all(|coord| coord.is_zero())
     }
 
     /// Compute scalar product with another `PolyVec`.
@@ -51,14 +61,38 @@ impl PolyVec {
         result
     }
 
+    /// Recompose a short `PolyVec` from a long one containing its decomposition.
+    pub fn recompose(self, base: u64, length: usize) -> PolyVec {
+        assert!(
+            self.0.len() % length == 0,
+            "recompose PolyVec: {} is not a multiple of {length}",
+            self.0.len()
+        );
+
+        let mut base_power: BaseRingElem = base.into();
+        let mut result = PolyVec::zero(self.0.len() / length);
+        for small_self in self.into_chunks(length).into_iter() {
+            result += &(small_self * &base_power);
+            base_power = &base_power * BaseRingElem::from(base);
+        }
+
+        result
+    }
+
     /// Concatenate two `PolyVec`s: `self <- self || other`.
     pub fn concat(&mut self, other: &mut PolyVec) {
         self.0.append(&mut other.0);
     }
 
+    pub fn split(self, idx: usize) -> (Self, Self) {
+        let tmp = self.0.split_at(idx);
+
+        (PolyVec(tmp.0.to_vec()), PolyVec(tmp.1.to_vec()))
+    }
+
     /// Split one `PolyVec` into chunks of size `split_dim`. The last chunk is padded with
     /// zeros.
-    pub fn split(self, split_dim: usize) -> Vec<PolyVec> {
+    pub fn into_chunks(self, split_dim: usize) -> Vec<PolyVec> {
         let mut result: Vec<PolyVec> = Vec::new();
         let regular_chunks = self.0.len() / split_dim;
 
@@ -89,10 +123,6 @@ impl PolyVec {
             .flatten()
     }
 
-    pub fn zero(dim: usize) -> Self {
-        Self(vec![PolyRingElem::zero(); dim])
-    }
-
     /// Generate an uniformly random `PolyVec` from a given RNG.
     pub fn random(dim: usize, rng: &mut ChaCha8Rng) -> Self {
         let mut vec: Vec<PolyRingElem> = Vec::new();
@@ -108,18 +138,8 @@ impl PolyVec {
         self.0.iter_mut().for_each(|poly| poly.invert_x());
     }
 
-    pub fn add_assign(&mut self, other: &Self) {
-        for (coef_self, coef_other) in self.0.iter_mut().zip(other.0.iter()) {
-            *coef_self += coef_other;
-        }
-    }
-
-    pub fn mul_assign<T: Into<PolyRingElem>>(&mut self, coef: T) {
-        let coef_poly: PolyRingElem = coef.into();
-
-        for coef_self in self.0.iter_mut() {
-            *coef_self = &coef_poly * coef_self.clone();
-        }
+    pub fn neg(&mut self) {
+        self.0.iter_mut().for_each(|poly| poly.neg());
     }
 
     /// Update `self`: `self <- self + coef * other`.
@@ -130,21 +150,64 @@ impl PolyVec {
     }
 }
 
-impl MulAssign<&PolyRingElem> for PolyVec {
-    fn mul_assign(&mut self, other: &PolyRingElem) {
+impl<'a> AddAssign<&'a PolyVec> for PolyVec {
+    fn add_assign(&mut self, other: &'a PolyVec) {
+        for (self_coord, other_coord) in self.0.iter_mut().zip(other.0.iter()) {
+            *self_coord += other_coord;
+        }
+    }
+}
+impl AddAssign<PolyVec> for PolyVec {
+    fn add_assign(&mut self, other: PolyVec) {
+        *self += &other;
+    }
+}
+
+impl<T> Add<T> for PolyVec
+where
+    PolyVec: AddAssign<T>,
+{
+    type Output = PolyVec;
+    fn add(self, other: T) -> PolyVec {
+        let mut new = self.clone();
+        new += other;
+
+        new
+    }
+}
+
+/// Scalar multiplication.
+impl<'a, T> MulAssign<&'a T> for PolyVec
+where
+    PolyRingElem: MulAssign<&'a T>,
+{
+    fn mul_assign(&mut self, other: &'a T) {
         for coef_self in self.0.iter_mut() {
-            *coef_self = other * &*coef_self;
+            *coef_self *= other;
         }
     }
 }
 
-impl Mul<&PolyRingElem> for &PolyVec {
+impl<'a, T> Mul<&'a T> for &PolyVec
+where
+    PolyVec: MulAssign<&'a T>,
+{
     type Output = PolyVec;
-    fn mul(self, other: &PolyRingElem) -> PolyVec {
-        let mut result = self.clone();
-        result *= other;
+    fn mul(self, other: &'a T) -> Self::Output {
+        let mut new = self.clone();
+        new *= other;
 
-        result
+        new
+    }
+}
+
+impl<'a, T> Mul<&'a T> for PolyVec
+where
+    for<'b> &'b PolyVec: Mul<&'a T, Output = PolyVec>,
+{
+    type Output = PolyVec;
+    fn mul(self, other: &'a T) -> PolyVec {
+        &self * other
     }
 }
 
@@ -233,6 +296,15 @@ impl PolyMatrix {
 impl SparsePolyMatrix {
     pub fn new() -> Self {
         Self(Vec::new())
+    }
+
+    pub fn apply(&self, packed_coefs: &PolyVec, r: usize) -> PolyRingElem {
+        let mut result = PolyRingElem::zero();
+        self.0
+            .iter()
+            .for_each(|(i, j, coef)| result += coef * &packed_coefs.0[i * (i + 1) / 2 + j]);
+
+        result
     }
 }
 

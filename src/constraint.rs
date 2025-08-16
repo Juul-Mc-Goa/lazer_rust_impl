@@ -55,7 +55,7 @@ impl Constraint {
                 for l in 0..len {
                     let new_j = j + l * r;
 
-                    let mut to_add = BaseRingElem::from(1 << (base * (k + l))) * &coef;
+                    let mut to_add = &BaseRingElem::from(1 << (base * (k + l))) * &coef;
                     if k != l {
                         to_add *= BaseRingElem::from(2);
                     }
@@ -85,7 +85,7 @@ impl Constraint {
             // multiply to_append by 2^base
             to_append
                 .iter_mut()
-                .for_each(|polyvec| polyvec.mul_assign(BaseRingElem::from(1 << base)));
+                .for_each(|polyvec| *polyvec *= &BaseRingElem::from(1 << base));
         }
 
         Self {
@@ -106,7 +106,7 @@ impl Constraint {
 
             for j in 0..256 {
                 all_constants[j] -= rows[j].scalar_prod(&witness[i]);
-                all_linear_parts[j][i].add_assign(&rows[j]);
+                all_linear_parts[j][i] += &rows[j];
             }
         }
 

@@ -122,7 +122,6 @@ pub fn amortize(
     output_wit: &mut Witness,
     proof: &mut Proof,
     packed_wit: &Witness,
-    commit_key: &CommitKey,
 ) {
     if proof.tail {
         amortize_tail(output_stat, output_wit, proof, packed_wit);
@@ -155,6 +154,7 @@ pub fn amortize(
         constraint,
         squared_norm_bound,
         hash,
+        commit_key,
     } = output_stat
     else {
         panic!("amortize: output statement is `Tail`");
