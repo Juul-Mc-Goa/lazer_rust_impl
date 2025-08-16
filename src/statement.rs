@@ -134,10 +134,9 @@ impl Statement {
         println!("  u2_len: {}", self.commit_params.u2_len);
 
         println!("commitments: elided");
-
         println!("challenges:");
         for challenge in self.challenges.iter() {
-            println!("  {:?}", challenge.element);
+            println!("  {:?}", challenge);
         }
         println!(
             "constraint: elided (non-zero quad coefs: {}, size of linear part: {})",

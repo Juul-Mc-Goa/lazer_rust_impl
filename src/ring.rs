@@ -14,7 +14,7 @@ pub struct BaseRingElem {
 }
 
 /// An element of `(Z/pZ)[X] / (X^d + 1)`, where `p = PRIME`, and `d = DEGREE`.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct PolyRingElem {
     pub element: Vec<BaseRingElem>,
 }
@@ -49,7 +49,21 @@ impl Debug for BaseRingElem {
         } else {
             self.element as i64 - PRIME as i64
         };
-        write!(f, "{small}")
+        write!(f, "{small:2}")
+    }
+}
+
+impl Debug for PolyRingElem {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        for i in 0..DEGREE {
+            if i == DEGREE - 1 {
+                write!(f, "{:?}", self.element[i as usize])?;
+            } else {
+                write!(f, "{:?} ", self.element[i as usize])?;
+            }
+        }
+
+        Ok(())
     }
 }
 
