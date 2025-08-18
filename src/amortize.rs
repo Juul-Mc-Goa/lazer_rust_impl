@@ -5,6 +5,7 @@ use crate::{
     proof::Proof,
     ring::PolyRingElem,
     statement::Statement,
+    utils::add_apply_matrices_garbage,
     witness::Witness,
 };
 
@@ -139,7 +140,7 @@ pub fn amortize(
                 uniform_base: unif_base,
                 uniform_length: unif_len,
                 quadratic_base: _,
-                quadratic_length: _,
+                quadratic_length: quad_len,
                 commit_rank_1: _,
                 commit_rank_2: com_rank_2,
                 ..
@@ -165,29 +166,22 @@ pub fn amortize(
     // compute linear garbage
     let linear_part = &constraint.linear_part;
     let dim_h = unif_len * r * (r + 1) / 2;
+    println!("amortize: dim_h = {dim_h}");
     let mut h: PolyVec = PolyVec(Vec::with_capacity(dim_h));
 
-    for k in 0..dim {
-        for i in 0..r {
-            let coef_ik = &linear_part[i].0[k];
-            let wit_ik = &packed_wit.vectors[i].0[k];
-            h.0.push(coef_ik * wit_ik);
-            for j in 0..i {
-                let coef_jk = &linear_part[j].0[k];
-                let wit_jk = &packed_wit.vectors[j].0[k];
-                h.0.push(coef_ik * wit_jk + coef_jk * wit_ik);
-            }
+    for i in 0..r {
+        for j in 0..i {
+            h.0.push(
+                linear_part[i].scalar_prod(&packed_wit.vectors[j])
+                    + linear_part[j].scalar_prod(&packed_wit.vectors[i]),
+            );
         }
+        // diagonal coef is special
+        h.0.push(linear_part[i].scalar_prod(&packed_wit.vectors[i]));
     }
 
-    // decompose linear garbage
-    let h = h.decomp(unif_base, unif_len);
-
-    // concatenate all PolyVecs in h
-    let mut h_concat: PolyVec = PolyVec::new();
-    for h_small in h.iter() {
-        h_concat.concat(&mut h_small.clone());
-    }
+    // decompose and concatenate linear garbage
+    let mut h = PolyVec::join(&h.decomp(unif_base, unif_len));
 
     let CommitKey {
         data:
@@ -200,16 +194,15 @@ pub fn amortize(
         seed: _,
     } = commit_key
     else {
-        panic!()
+        panic!("amortize: commit key is `Tail`")
     };
 
     // compute u2
     *u2 = PolyVec::zero(com_rank_2);
-    for (h_digit, d_level) in h.iter().zip(matrices_d.iter()) {
-        for i in 0..r {
-            d_level[i].add_apply_raw(&mut u2.0, &h_digit.0[..=i]);
-        }
-    }
+    // sum(j <= i, D_ijk h_ijk)
+    add_apply_matrices_garbage(&mut u2.0, matrices_d, &h.0, r, unif_len);
+
+    // println!("amortize: u2 = {u2:?}");
 
     // use u2 to update output_stat.hash
     // initialise hasher
@@ -229,23 +222,48 @@ pub fn amortize(
 
     // compute z
     let mut z = PolyVec::zero(dim);
-    packed_wit
-        .vectors
+    challenges
         .iter()
-        .zip(challenges.iter())
-        .for_each(|(w, c)| z.add_mul_assign(c, w));
+        .zip(packed_wit.vectors.iter())
+        .for_each(|(c_i, s_i)| z.add_mul_assign(c_i, s_i));
+
+    println!("z: {z:?}");
+
+    let CommitKeyData::NoTail { ref matrix_a, .. } = output_stat.commit_key.data else {
+        panic!("wtf");
+    };
+    let mut diff: PolyVec = matrix_a.apply(&z);
+    diff.neg(); // diff = -Az
+    // diff += sum(i, c_i t_i)
+    let com_rank_1 = output_stat.commit_params.commit_rank_1;
+    let t = output_wit
+        .vectors
+        .last()
+        .unwrap()
+        .clone()
+        .split(unif_len * r * com_rank_1)
+        .0
+        .recompose(unif_base as u64, unif_len);
+    challenges
+        .iter()
+        .zip(t.into_chunks(com_rank_1).iter())
+        .for_each(|(c_i, t_i)| diff.add_mul_assign(c_i, t_i));
+
+    println!("amortize: diff = {diff:?}");
 
     // decompose z
     let mut z: Vec<PolyVec> = z.decomp(*z_base, z_len);
 
+    // new_witness = (z_0, ... z_{z_len - 1}, t || g || h)
     // build new witness: z part
     let mut new_wit: Vec<PolyVec> = Vec::with_capacity(r);
     new_wit.append(&mut z);
 
-    // build new witness: g || h part
+    // build new_witness: t || g || h
+    // t || g is stored in output_wit[0] (computed in `commit()`)
     let last_idx = z_len;
     new_wit.push(output_wit.vectors[0].clone());
-    new_wit[last_idx].concat(&mut h_concat);
+    new_wit[last_idx].concat(&mut h);
 
     // store new witness
     output_wit.vectors = new_wit;

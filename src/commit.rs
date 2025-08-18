@@ -4,6 +4,7 @@ use crate::{
     proof::Proof,
     ring::PolyRingElem,
     statement::Statement,
+    utils::{add_apply_matrices_b, add_apply_matrices_garbage},
     witness::Witness,
 };
 
@@ -265,44 +266,6 @@ impl Commitments {
     }
 }
 
-#[allow(dead_code)]
-fn inner_commit_tail(inner: &mut PolyVec, witness: &[PolyVec], matrix_a: &PolyMatrix) {
-    // apply the matrix A to each vector in the witness
-    for w in witness {
-        inner.0.append(&mut matrix_a.apply(w).0);
-    }
-}
-
-#[allow(dead_code)]
-fn inner_commit_no_tail(
-    outer: &mut PolyVec,
-    inner: &mut PolyVec,
-    outer_wit: &mut Vec<PolyVec>,
-    input_wit: &[PolyVec],
-    matrix_a: &PolyMatrix,
-    matrices_b: &Vec<Vec<PolyMatrix>>,
-    com_params: &CommitParams,
-) {
-    let unif_base = com_params.uniform_base;
-    let unif_len = com_params.uniform_length;
-    outer_wit.push(PolyVec::new());
-    let last_vec = outer_wit.last_mut().unwrap();
-
-    for i in 0..input_wit.len() {
-        let mut chunk = matrix_a.apply(&input_wit[i]);
-
-        // decompose inner_commit
-        for (k, inner_decomp) in chunk.decomp(unif_base, unif_len).iter_mut().enumerate() {
-            // apply the matrices in matrices_b
-            matrices_b[k][i].add_apply(outer, inner_decomp);
-            // extend last_vec
-            last_vec.concat(inner_decomp);
-        }
-
-        inner.0.append(&mut chunk.0);
-    }
-}
-
 /// Commit:
 /// - modify `output_stat.commitments`
 ///   - if `proof.tail` is true:
@@ -362,7 +325,11 @@ pub fn commit(
         }
     }
 
-    // first step: handle inner commitment
+    // last vector of output_wit: t || g || h
+    let mut tgh = PolyVec::new();
+
+    // step 1: handle inner commitment (t)
+    // 1.1: build t (ie inner)
     for i in 0..r {
         full_witness[vector_idx]
             .0
@@ -381,74 +348,71 @@ pub fn commit(
                 PolyVec::zero(output_stat.dim),
             );
 
-            let witness_chunk = &full_witness[vector_idx..(vector_idx + proof.chunks[i])];
-
-            if proof.tail {
-                inner_commit_tail(&mut inner, witness_chunk, matrix_a);
-            } else {
-                inner_commit_no_tail(
-                    &mut u1,
-                    &mut inner,
-                    &mut output_wit.vectors,
-                    witness_chunk,
-                    matrix_a,
-                    matrices_b,
-                    com_params,
-                );
-            }
+            // apply the matrix A
+            let mut t_i = matrix_a.apply(&full_witness[vector_idx]);
+            inner.concat(&mut t_i);
 
             // update vector index: filled exactly chunks[i] vectors
             vector_idx += proof.chunks[i];
         }
     }
 
+    if !proof.tail {
+        let unif_base = com_params.uniform_base;
+        let unif_len = com_params.uniform_length;
+
+        // decompose inner
+        let mut t: PolyVec = PolyVec::join(&inner.decomp(unif_base, unif_len));
+
+        // update u1
+        add_apply_matrices_b(&mut u1.0, matrices_b, &t.0, r, com_params);
+        // update: tgh <- t
+        tgh.concat(&mut t);
+    }
+
     // second step: handle garbage
     if com_params.quadratic_length != 0 {
         // compute quadratic garbage < s_i, s_j >
-        let mut quad_inner: Vec<Vec<PolyRingElem>> = Vec::new();
+        let mut big_g: Vec<Vec<PolyRingElem>> = Vec::new();
         for i in 0..output_stat.r {
-            quad_inner.push(vec![PolyRingElem::zero(); i + 1]);
+            big_g.push(vec![PolyRingElem::zero(); i + 1]);
             for j in 0..=i {
-                for k in 0..output_stat.dim {
-                    quad_inner[i][j] += &full_witness[i].0[k] * &full_witness[j].0[k];
-                }
+                big_g[i][j] += full_witness[i].scalar_prod(&full_witness[j]);
             }
         }
 
         if proof.tail {
             // append the quadratic garbage to commitments.garbage
-            for mut garbage_vec in quad_inner.drain(..) {
+            for mut garbage_vec in big_g.drain(..) {
                 garbage.0.append(&mut garbage_vec);
             }
         } else {
-            // - decompose quad_inner,
+            // - compute g
             // - apply matrices_c, update u1
-            // - append decomposed quad_inner to output_wit.vectors
+            // - append g to tgh
             let quad_base = com_params.quadratic_base;
             let quad_len = com_params.quadratic_length;
 
-            // decomp_inner[i][k][j]: level k of < s_i, s_j >
-            let decomp_inner: Vec<Vec<PolyVec>> = quad_inner
+            // compute g (= quad_garbage)
+            let mut big_g_concat = PolyVec::new();
+            big_g
                 .into_iter()
-                .map(|line| PolyVec(line).decomp(quad_base, quad_len))
-                .collect();
+                .for_each(|g_i| big_g_concat.concat(&mut PolyVec(g_i)));
 
-            // reindex decomp_inner
-            let mut g_witness: Vec<PolyVec> = vec![PolyVec::new(); quad_len];
-            for i in 0..output_stat.r {
-                // update u1
-                for k in 0..quad_len {
-                    matrices_c[k][i].add_apply(&mut u1, &decomp_inner[i][k]);
-                    g_witness[k].0.append(&mut decomp_inner[i][k].0.clone());
-                }
-            }
-            // ie append one vector containing all the vectors in g_witness
-            // output_wit.vectors[0] now contains decomp(t) || decomp(g)
-            output_wit.vectors[0].concat(&mut PolyVec(
-                g_witness.into_iter().map(|poly| poly.0).flatten().collect(),
-            ));
+            let mut g: PolyVec = PolyVec::new();
+            big_g_concat
+                .decomp(quad_base, quad_len)
+                .iter_mut()
+                .for_each(|g_k| g.concat(g_k));
+
+            // update u1
+            add_apply_matrices_garbage(&mut u1.0, matrices_c, &g.0, r, quad_len);
+            // tgh <- tgh || g
+            tgh.concat(&mut g);
         }
     }
+
+    output_wit.vectors.push(tgh);
 
     let mut hasher = Shake128::default();
     hasher.update(&output_stat.hash);
@@ -480,7 +444,6 @@ pub fn commit(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::random_context;
 
     #[test]
     fn commit_tail_simple_a() {

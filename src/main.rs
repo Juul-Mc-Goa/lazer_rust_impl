@@ -12,6 +12,7 @@ use crate::{
     proof::Proof,
     ring::PolyRingElem,
     statement::Statement,
+    verify::verify,
     witness::Witness,
 };
 
@@ -174,4 +175,8 @@ fn main() {
 
     println!("\nOutput statement:");
     output_stat.print();
+
+    println!("Verify:");
+    let result = verify(&output_stat, &output_wit);
+    println!("Result: {result:?}");
 }

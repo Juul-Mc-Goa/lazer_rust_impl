@@ -77,22 +77,12 @@ fn z_decompose(
 
     if decompose {
         // z_base =  log((12 * varz)^1/4)
-        (
-            split_dim,
-            2,
-            (twelve_log2(var_z) / 4.0).round() as usize,
-            new_r,
-            var_z,
-        )
+        let z_base = (twelve_log2(var_z) / 4.0).ceil() as usize;
+        (split_dim, 2, z_base, new_r, var_z)
     } else {
         // z_base = log((12 * varz)^1/2)
-        (
-            split_dim,
-            1,
-            (twelve_log2(var_z) / 2.0).round() as usize,
-            new_r,
-            var_z,
-        )
+        let z_base = (twelve_log2(var_z) / 2.0).ceil() as usize;
+        (split_dim, 1, z_base, new_r, var_z)
     }
 }
 
@@ -317,13 +307,14 @@ impl Proof {
             chunks[witness.r] = 1;
             chunks[2 * witness.r] = 1;
         } else {
-            for i in 0..r {
-                dim[i] = witness.dim[i];
-                norm_square[i] = witness.norm_square[i];
-                chunks[i] = if quadratic != 0 { 1 } else { 0 };
+            dim.copy_from_slice(&witness.dim);
+            norm_square.copy_from_slice(&witness.norm_square);
+            if quadratic != 0 {
+                chunks.fill(1);
+            } else {
+                chunks.fill(0);
+                chunks[r - 1] = 1;
             }
-
-            chunks[r - 1] = 1;
         }
 
         // compute global variables used in the for loop
@@ -376,8 +367,10 @@ impl Proof {
             );
 
             if !is_tail {
-                uniform_length = (LOG_PRIME as usize + 2 * z_base / 3) / z_base;
-                uniform_base = (LOG_PRIME as usize + z_length / 2) / uniform_length;
+                // uniform_length = (LOG_PRIME as usize + 2 * z_base / 3) / z_base;
+                // uniform_base = (LOG_PRIME as usize + z_length / 2) / uniform_length;
+                uniform_length = (LOG_PRIME as usize).div_ceil(z_base);
+                uniform_base = (LOG_PRIME as usize).div_ceil(uniform_length);
             } else {
                 uniform_length = 1;
                 uniform_base = LOG_PRIME as usize;
@@ -482,7 +475,9 @@ impl Proof {
         let mut norm_square: Vec<u128> = Vec::new();
 
         for (w, chunk) in witness.vectors.iter().zip(self.chunks.iter()) {
-            for new_w in w.clone().into_chunks(w.0.len().div_ceil(*chunk)) {
+            let split_dim = w.0.len().div_ceil(*chunk);
+            println!("pack: split_dim = {split_dim}");
+            for new_w in w.clone().into_chunks(split_dim) {
                 norm_square.push(new_w.norm_square());
                 new_vec.push(new_w);
                 r += 1;

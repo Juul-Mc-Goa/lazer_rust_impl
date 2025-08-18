@@ -68,12 +68,15 @@ impl PolyVec {
             "recompose PolyVec: {} is not a multiple of {length}",
             self.0.len()
         );
+        let split_dim = self.0.len() / length;
 
-        let mut base_power: BaseRingElem = base.into();
-        let mut result = PolyVec::zero(self.0.len() / length);
-        for small_self in self.into_chunks(length).into_iter() {
-            result += &(small_self * &base_power);
-            base_power = &base_power * BaseRingElem::from(base);
+        let ldexp_base: BaseRingElem = BaseRingElem::from(1 << base);
+        let mut scale_coef: BaseRingElem = 1.into();
+
+        let mut result = PolyVec::zero(split_dim);
+        for small_self in self.into_chunks(split_dim).into_iter() {
+            result += &(small_self * &scale_coef);
+            scale_coef = &scale_coef * &ldexp_base;
         }
 
         result
@@ -82,6 +85,17 @@ impl PolyVec {
     /// Concatenate two `PolyVec`s: `self <- self || other`.
     pub fn concat(&mut self, other: &mut PolyVec) {
         self.0.append(&mut other.0);
+    }
+
+    /// Concatenate a list of `PolyVec`s into one.
+    pub fn join(vec: &[PolyVec]) -> Self {
+        let mut result_vec: Vec<PolyRingElem> = Vec::new();
+
+        for polyvec in vec {
+            result_vec.extend_from_slice(&polyvec.0);
+        }
+
+        Self(result_vec)
     }
 
     pub fn split(self, idx: usize) -> (Self, Self) {
@@ -228,14 +242,14 @@ impl PolyMatrix {
     pub fn add_apply_raw(&self, output: &mut [PolyRingElem], input: &[PolyRingElem]) {
         if input.len() != self.0[0].len() {
             panic!(
-                "Applying matrix to incompatible vector: matrix rows = {}, vector length = {}",
+                "Applying matrix to incompatible vector: matrix columns = {}, vector length = {}",
                 self.0[0].len(),
                 input.len()
             );
         }
         if output.len() != self.0.len() {
             panic!(
-                "Storing matrix mul result to incompatible vector: matrix colums = {}, vector length = {}",
+                "Storing matrix mul result to incompatible vector: matrix rows = {}, vector length = {}",
                 self.0.len(),
                 output.len()
             );

@@ -252,18 +252,28 @@ impl PolyRingElem {
     pub fn decompose(&self, log_base: usize, len: usize) -> Vec<Self> {
         let base = 1 << log_base;
 
-        let mut result: Vec<Vec<u64>> = vec![Vec::new(); len];
+        let mut result: Vec<Vec<BaseRingElem>> = vec![Vec::new(); len];
 
-        for i in 0..DEGREE {
-            let mut coef = self.element[i as usize].element;
-            for j in 0..len {
-                let coef_limb = coef & (base - 1);
-                result[j].push(coef_limb);
-                coef >>= log_base as u64;
+        for i in 0..(DEGREE as usize) {
+            let positive = 2 * self.element[i].element < PRIME;
+            let mut coef = self.element[i].abs();
+
+            if positive {
+                for j in 0..len {
+                    let coef_limb = coef & (base - 1);
+                    result[j].push(coef_limb.into());
+                    coef >>= log_base as u64;
+                }
+            } else {
+                for j in 0..len {
+                    let coef_limb = coef & (base - 1);
+                    result[j].push(-BaseRingElem::from(coef_limb));
+                    coef >>= log_base as u64;
+                }
             }
         }
 
-        result.into_iter().map(|v| Self::from_vec_u64(v)).collect()
+        result.into_iter().map(|v| Self { element: v }).collect()
     }
 
     /// Apply the ring automorphism defined by `sigma(X) = X^{-1} = -X^{d-1}` to the polynomial.

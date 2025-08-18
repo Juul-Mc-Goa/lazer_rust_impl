@@ -61,18 +61,10 @@ impl RecursedVector {
         // vector v
         let mut v: PolyVec = PolyVec::new();
         for t_k in self.t_part {
-            for mut t_ik in t_k {
-                v.concat(&mut t_ik);
-            }
+            v.concat(&mut PolyVec::join(&t_k));
         }
-
-        for mut g_k in self.g_part {
-            v.concat(&mut g_k);
-        }
-
-        for mut h_k in self.h_part {
-            v.concat(&mut h_k);
-        }
+        v.concat(&mut PolyVec::join(&self.g_part));
+        v.concat(&mut PolyVec::join(&self.h_part));
 
         // split v into vectors of dimension `split_dim`
         result.append(&mut v.into_chunks(split_dim));
