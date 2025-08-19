@@ -161,7 +161,7 @@ impl PolyRingElem {
     }
 
     /// Multiply the polynomial by `X^exp`, in the ring where `X^DEGREE + 1 = 0`.
-    pub fn mul_by_x_power(self, mut exp: u64) -> Self {
+    pub fn mul_by_x_power(&self, mut exp: u64) -> Self {
         let mut result = Self::zero();
         exp %= DEGREE;
 
@@ -590,9 +590,10 @@ impl Mul<PolyRingElem> for &BaseRingElem {
 impl MulAssign<&PolyRingElem> for PolyRingElem {
     fn mul_assign(&mut self, other: &PolyRingElem) {
         let clone = self.clone();
+        self.element.fill(0.into());
 
         for (i, coef) in other.element.iter().enumerate() {
-            let tmp = coef * clone.clone().mul_by_x_power(i as u64);
+            let tmp = coef * clone.mul_by_x_power(i as u64);
             *self += tmp;
         }
     }
@@ -615,9 +616,10 @@ impl Mul<&PolyRingElem> for &PolyRingElem {
     type Output = PolyRingElem;
     fn mul(self, other: &PolyRingElem) -> Self::Output {
         let mut result = PolyRingElem::zero();
+        let clone = self.clone();
 
         for (i, coef) in other.element.iter().enumerate() {
-            let tmp = coef * self.clone().mul_by_x_power(i as u64);
+            let tmp = coef * clone.mul_by_x_power(i as u64);
             result += tmp;
         }
 

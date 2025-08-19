@@ -21,15 +21,22 @@ pub fn aggregate_constant_coeff(
     output_stat: &mut Statement,
     proof: &mut Proof,
     witness: &Witness,
-    dim: usize,
     jl_matrices: &[JLMatrix],
 ) {
     // REVIEW: hashbuf length
     // hashbuf: 32 bytes, then challenges (256 BaseRingElem), then ???
     let mut hashbuf = [0_u8; 32 + PRIME_BYTES_LEN * 256 + 24];
 
+    let (r, dim) = (output_stat.r, output_stat.dim);
+
+    output_stat
+        .constraint
+        .linear_part
+        .0
+        .resize(r * dim, PolyRingElem::zero());
+
     // `constraints` contains 256 constraints: one per output coordinate
-    let constraints = Constraint::from_jl_proj(jl_matrices, &witness.vectors, witness.r);
+    let constraints = Constraint::from_jl_proj(jl_matrices, &witness.vectors);
 
     for _ in 0..U128_LEN {
         // collaps_jlproj_raw:
@@ -46,7 +53,7 @@ pub fn aggregate_constant_coeff(
         output_stat.hash.copy_from_slice(&hashbuf[..16]);
 
         let challenges: [BaseRingElem; 256] = unpack_challenges(&hashbuf[32..]);
-        let constraint = aggregate_constraints(dim, witness.r, &constraints, &challenges);
+        let constraint = aggregate_constraints(r, dim, &constraints, &challenges);
 
         // copy constant to proof.lifting_poly
         proof.lifting_poly.push(constraint.constant.clone());
@@ -66,14 +73,10 @@ pub fn aggregate_constant_coeff(
         let alpha: PolyRingElem = PolyRingElem::random(&mut rng);
 
         // update output_stat.constraint
-        for (stat_vec, cons_vec) in output_stat
+        output_stat
             .constraint
             .linear_part
-            .iter_mut()
-            .zip(constraint.linear_part)
-        {
-            stat_vec.add_mul_assign(&alpha, &cons_vec);
-        }
+            .add_mul_assign(&alpha, &constraint.linear_part);
         output_stat.constraint.constant += &alpha * constraint.constant;
     }
 }

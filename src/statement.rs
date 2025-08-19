@@ -143,7 +143,7 @@ impl Statement {
         println!(
             "constraint: elided (non-zero quad coefs: {}, size of linear part: {})",
             self.constraint.quadratic_part.0.len(),
-            self.constraint.linear_part.len(),
+            self.constraint.linear_part.0.len(),
         );
         println!(
             "squared_norm_bound: {}, (ie around 2^{})",

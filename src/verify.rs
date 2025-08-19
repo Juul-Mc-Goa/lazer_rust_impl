@@ -3,9 +3,8 @@
 use crate::{
     Statement,
     commit::{CommitKeyData, CommitParams},
-    constraint::Constraint,
-    linear_algebra::{PolyMatrix, PolyVec},
-    ring::PolyRingElem,
+    linear_algebra::{PolyMatrix, PolyVec, SparsePolyMatrix},
+    ring::{BaseRingElem, PolyRingElem},
     utils::{add_apply_matrices_b, add_apply_matrices_garbage, split_tgh},
     witness::Witness,
 };
@@ -50,7 +49,10 @@ impl std::fmt::Debug for VerifyError {
             ),
             QuadGarbageCheck(diff) => write!(f, "<z, z> != sum(ij, c_i c_j g_ij), diff = {diff:?}"),
             UnifGarbageCheck(diff) => {
-                write!(f, "<sum(i, c_i b_i), z > != sum(ij, h_ij), diff = {diff:?}")
+                write!(
+                    f,
+                    "<sum(i, c_i b_i), z > != sum(ij, c_i c_j h_ij), diff = {diff:?}"
+                )
             }
         }
     }
@@ -71,7 +73,7 @@ fn unwrap_no_tail<'a>(outer_opt: Option<(&'a PolyVec, &'a PolyVec)>) -> (&'a Pol
 /// Checks that:
 /// * `u1 = matrices_b * t + matrices_c * g`
 /// * `u2 = matrices_d * h`
-fn check_commits(statement: &Statement, witness: &Witness) -> VerifyResult {
+fn check_outer_commits(statement: &Statement, witness: &Witness) -> VerifyResult {
     let CommitKeyData::NoTail {
         matrix_a: _,
         matrices_b,
@@ -124,42 +126,158 @@ fn check_commits(statement: &Statement, witness: &Witness) -> VerifyResult {
     Ok(())
 }
 
-pub fn verify(statement: &Statement, witness: &Witness) -> VerifyResult {
+/// Check the following constraint: `Az = sum(i, c_i t_i)`
+pub fn check_inner_commit(
+    com_rank_1: usize,
+    challenges: &[PolyRingElem],
+    matrix_a: &PolyMatrix,
+    z: &PolyVec,
+    t: PolyVec,
+) -> VerifyResult {
+    let mut diff: PolyVec = matrix_a.apply(&z);
+    diff.neg(); // diff = -Az
+    // diff += sum(i, c_i t_i)
+    challenges
+        .iter()
+        .zip(t.into_chunks(com_rank_1).iter())
+        .for_each(|(c_i, t_i)| diff.add_mul_assign(c_i, t_i));
+
+    if !diff.is_zero() {
+        return Err(VerifyError::ZCheck(diff));
+    }
+
+    Ok(())
+}
+
+/// Check the following constraint: `< z, z > = sum(ij, c_i c_j g_ij)`.
+pub fn check_quad_constraint(
+    r: usize,
+    challenges: &[PolyRingElem],
+    z: &PolyVec,
+    g: &PolyVec,
+) -> VerifyResult {
+    let mut diff = -z.scalar_prod(&z);
+
+    (0..r).for_each(|i| {
+        let quad_i = i * (i + 1) / 2;
+        (0..i).for_each(|j| {
+            let mut term = &BaseRingElem::from(2) * &challenges[i];
+            term *= &(&challenges[j] * &g.0[quad_i + j]);
+            diff += &term;
+        });
+        let term = &challenges[i] * &challenges[i] * &g.0[quad_i + i];
+        diff += &term;
+    });
+
+    if !diff.is_zero() {
+        return Err(VerifyError::QuadGarbageCheck(diff));
+    }
+
+    Ok(())
+}
+
+/// Check the following constraint: `< sum(i, c_i b_i), z > = sum(ij, c_i c_j h_ij)`.
+pub fn check_h_constraint(
+    r: usize,
+    dim: usize,
+    z: &PolyVec,
+    challenges: &[PolyRingElem],
+    linear_part: &PolyVec,
+    h: &PolyVec,
+) -> VerifyResult {
+    let linear_part = linear_part.clone().into_chunks(dim);
+    let mut diff = PolyRingElem::zero();
+
+    // -sum(i, c_i b_i)
+    let mut lin_aggregate = PolyVec::zero(dim);
+    linear_part
+        .iter()
+        .zip(challenges.iter())
+        .for_each(|(b_i, c_i)| lin_aggregate.add_mul_assign(c_i, b_i));
+    lin_aggregate.neg();
+
+    diff += lin_aggregate.scalar_prod(z);
+
+    // sum(ij, c_i c_j h_ij)
+    let mut h_part: PolyVec = PolyVec::zero(r * (r + 1) / 2);
+    (0..r).for_each(|i| {
+        let quad_i = i * (i + 1) / 2;
+        (0..=i).for_each(|j| {
+            h_part.0[quad_i + j] = &challenges[i] * &challenges[j];
+            diff += &challenges[i] * &challenges[j] * &h.0[quad_i + j];
+        })
+    });
+    if !diff.is_zero() {
+        return Err(VerifyError::UnifGarbageCheck(diff));
+    }
+    Ok(())
+}
+
+#[allow(dead_code)]
+pub fn check_principle(
+    r: usize,
+    g: &PolyVec,
+    h: &PolyVec,
+    quadratic_part: &SparsePolyMatrix,
+    constant: &PolyRingElem,
+) -> VerifyResult {
+    let mut diff: PolyRingElem = constant.clone();
+
+    // diff = sum(ij, a_ij g_ij)
+    diff += quadratic_part.apply_to_garbage(g);
+
+    // diff += sum(i, h_ii)
+    let mut sum_h_ii = PolyRingElem::zero();
+    (0..r).for_each(|i| {
+        let quad_idx = i * (i + 1) / 2 + i;
+
+        diff += &h.0[quad_idx];
+        sum_h_ii += &h.0[quad_idx];
+    });
+
+    if !diff.is_zero() {
+        return Err(VerifyError::PrincipleCheck(diff));
+    }
+
+    Ok(())
+}
+
+pub fn verify(output_stat: &Statement, input_stat: &Statement, witness: &Witness) -> VerifyResult {
     let norm_square: u128 = witness.vectors.iter().map(|w| w.norm_square()).sum();
 
-    if norm_square < statement.squared_norm_bound {
+    if norm_square > output_stat.squared_norm_bound {
         return Err(VerifyError::NormCheck {
             norm_square,
-            bound_square: statement.squared_norm_bound,
+            bound_square: output_stat.squared_norm_bound,
         });
     }
 
-    let r = statement.r;
-    let z_base = statement.commit_params.z_base;
-    let z_len = statement.commit_params.z_length;
-    let unif_base = statement.commit_params.uniform_base;
-    let unif_len = statement.commit_params.uniform_length;
-    let quad_base = statement.commit_params.quadratic_base;
-    let quad_len = statement.commit_params.quadratic_length;
-    let com_rank_1 = statement.commit_params.commit_rank_1;
+    let r = output_stat.r;
+    let z_base = output_stat.commit_params.z_base;
+    let z_len = output_stat.commit_params.z_length;
+    let unif_base = output_stat.commit_params.uniform_base;
+    let unif_len = output_stat.commit_params.uniform_length;
+    let quad_base = output_stat.commit_params.quadratic_base;
+    let quad_len = output_stat.commit_params.quadratic_length;
+    let com_rank_1 = output_stat.commit_params.commit_rank_1;
 
-    let inner: &PolyVec = statement.commitments.inner();
-    let garbage: Option<&PolyVec> = statement.commitments.garbage();
-    let challenges: &[PolyRingElem] = &statement.challenges;
+    let inner: &PolyVec = output_stat.commitments.inner();
+    let garbage: Option<&PolyVec> = output_stat.commitments.garbage();
+    let challenges: &[PolyRingElem] = &input_stat.challenges;
 
     // last witness (no tail): t_part || g_part || h_part
-    let z_part: PolyVec;
-    let t_part: PolyVec;
-    let g_part: PolyVec;
-    let h_part: PolyVec;
+    let z: PolyVec;
+    let t: PolyVec;
+    let g: PolyVec;
+    let h: PolyVec;
 
-    if statement.tail {
-        z_part = PolyVec::new();
-        t_part = inner.clone();
-        g_part = PolyVec::new();
-        h_part = unwrap_tail(garbage).clone();
+    if output_stat.tail {
+        z = PolyVec::new();
+        g = PolyVec::new();
+        t = inner.clone();
+        h = unwrap_tail(garbage).clone();
     } else {
-        let _ = check_commits(statement, witness)?;
+        let _ = check_outer_commits(output_stat, witness)?;
 
         let long_z = PolyVec::join(&witness.vectors[..z_len]);
         let tgh = witness.vectors[z_len].clone();
@@ -171,86 +289,102 @@ pub fn verify(statement: &Statement, witness: &Witness) -> VerifyResult {
         let (long_t, gh) = tgh.split(t_len);
         let (long_g, long_h) = gh.split(g_len);
 
-        z_part = long_z.recompose(z_base as u64, z_len);
-        t_part = long_t.recompose(unif_base as u64, unif_len);
-        g_part = long_g.recompose(quad_base as u64, quad_len);
-        h_part = long_h.recompose(unif_base as u64, unif_len);
+        z = long_z.recompose(z_base as u64, z_len);
+        t = long_t.clone().recompose(unif_base as u64, unif_len);
+        g = long_g.clone().recompose(quad_base as u64, quad_len);
+        h = long_h.clone().recompose(unif_base as u64, unif_len);
     }
 
-    // Az = sum(i, c_i t_i)
-    use CommitKeyData::*;
-    let matrix_a: &PolyMatrix = match &statement.commit_key.data {
-        NoTail { matrix_a, .. } => matrix_a,
+    let matrix_a: &PolyMatrix = match &output_stat.commit_key.data {
+        CommitKeyData::NoTail { matrix_a, .. } => &matrix_a,
         _ => panic!("verify: commit key data is tail"),
     };
 
-    println!("z: {z_part:?}");
-    let mut diff: PolyVec = matrix_a.apply(&z_part);
-    diff.neg(); // diff = -Az
-    // diff += sum(i, c_i t_i)
-    challenges
-        .iter()
-        .zip(t_part.into_chunks(com_rank_1).iter())
-        .for_each(|(c_i, t_i)| diff.add_mul_assign(c_i, t_i));
+    check_inner_commit(com_rank_1, challenges, &matrix_a, &z, t)?;
 
-    if !diff.is_zero() {
-        return Err(VerifyError::ZCheck(diff));
-    }
-
-    // sum(ij, a_ij g_ij) + sum(i, h_ii) + c = 0
-    let Constraint {
-        degree: _,
-        quadratic_part,
-        linear_part,
-        constant,
-    } = &statement.constraint;
-    // diff = c
-    let mut diff: PolyRingElem = constant.clone();
-
-    // diff += sum(ij, a_ij g_ij)
-    diff += quadratic_part.apply(&g_part, r);
-
-    // diff += sum(i, h_ii)
-    (0..r).for_each(|i| diff += &h_part.0[i * (i + 1) / 2 + i]);
-
-    if !diff.is_zero() {
-        return Err(VerifyError::PrincipleCheck(diff));
-    }
+    let quadratic_part = &input_stat.constraint.quadratic_part;
+    let constant = &input_stat.constraint.constant;
 
     // < z, z > = sum(ij, c_i c_j g_ij)
-    if !statement.constraint.quadratic_part.0.is_empty() {
-        let mut diff = -z_part.scalar_prod(&z_part);
-        (0..r).for_each(|i| {
-            (0..=i).for_each(|j| {
-                diff += &challenges[i] * &challenges[j] * &g_part.0[i * (i + 1) / 2 + j]
-            })
-        });
-
-        if !diff.is_zero() {
-            return Err(VerifyError::QuadGarbageCheck(diff));
-        }
+    if !quadratic_part.0.is_empty() {
+        check_quad_constraint(r, challenges, &z, &g)?;
     }
 
     // < sum(i, c_i b_i), z > = sum(ij, c_i c_j h_ij)
-    let mut diff = PolyRingElem::zero();
+    check_h_constraint(
+        r,
+        output_stat.dim,
+        &z,
+        challenges,
+        &input_stat.constraint.linear_part,
+        &h,
+    )?;
 
-    // sum(i, c_i b_i)
-    let mut lin_aggregate = PolyVec::zero(statement.dim);
-    (0..r).for_each(|i| lin_aggregate += &linear_part[i] * &challenges[i]);
-    lin_aggregate.neg();
-
-    diff += lin_aggregate.scalar_prod(&z_part);
-
-    // sum(ij, c_i c_j h_ij)
-    (0..r).for_each(|i| {
-        (0..=i)
-            .for_each(|j| diff += &challenges[i] * &challenges[j] * &h_part.0[i * (i + 1) / 2 + j])
-    });
-
-    // "verify: < sum(i, c_i b_i), z > != sum(ij, c_i c_j h_ij)"
-    if !diff.is_zero() {
-        return Err(VerifyError::UnifGarbageCheck(diff));
-    }
+    check_principle(r, &g, &h, quadratic_part, constant)?;
 
     Ok(())
+
+    // // aggregated relation
+    // let new_wit = {
+    //     // split z
+    //     let mut vectors: Vec<PolyVec> = witness.vectors[..z_len]
+    //         .into_iter()
+    //         .map(|v| v.clone().into_chunks(output_stat.dim))
+    //         .flatten()
+    //         .collect();
+    //     // split tgh
+    //     vectors.append(&mut witness.vectors[z_len].clone().into_chunks(output_stat.dim));
+
+    //     let r = vectors.len();
+    //     let dim = vec![output_stat.dim; r];
+    //     let norm_square: Vec<u128> = vectors.iter().map(|v| v.norm_square()).collect();
+
+    //     Witness {
+    //         r,
+    //         dim,
+    //         norm_square,
+    //         vectors,
+    //     }
+    // };
+
+    // let result = output_stat.constraint.check(&new_wit);
+    // if result.is_zero() {
+    //     Ok(())
+    // } else {
+    //     Err(VerifyError::PrincipleCheck(result))
+    // }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn quad_constraint() {
+        let r = 3;
+        let zero = PolyRingElem::zero();
+        let one = PolyRingElem::one();
+        let three = &BaseRingElem::from(3) * &one;
+        let wit = vec![
+            PolyVec(vec![one.clone(); 3]),
+            PolyVec(vec![one.clone(), zero.clone(), zero.clone()]),
+            PolyVec(vec![zero.clone(), zero.clone(), one.clone()]),
+        ];
+        let g = PolyVec(vec![
+            three.clone(),
+            one.clone(),
+            one.clone(),
+            one.clone(),
+            zero.clone(),
+            one.clone(),
+        ]);
+
+        let challenges = PolyVec(vec![one.clone(); 3]);
+        let z = wit[0].clone() + &wit[1] + &wit[2];
+
+        let result = check_quad_constraint(r, &challenges.0, &z, &g);
+        println!("{result:?}");
+
+        assert!(result.is_ok());
+    }
 }

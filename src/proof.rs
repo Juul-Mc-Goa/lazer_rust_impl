@@ -476,7 +476,6 @@ impl Proof {
 
         for (w, chunk) in witness.vectors.iter().zip(self.chunks.iter()) {
             let split_dim = w.0.len().div_ceil(*chunk);
-            println!("pack: split_dim = {split_dim}");
             for new_w in w.clone().into_chunks(split_dim) {
                 norm_square.push(new_w.norm_square());
                 new_vec.push(new_w);

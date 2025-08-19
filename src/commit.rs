@@ -289,9 +289,9 @@ pub fn commit(
     let commit_key = &output_stat.commit_key;
 
     // resized witness
-    let mut full_witness = vec![PolyVec(Vec::with_capacity(output_stat.dim)); output_stat.r];
+    let packed_witness = proof.pack_witness(&input_wit);
 
-    let mut vector_idx = 0; // in 0..r
+    // let mut vector_idx = 0; // in 0..r
 
     output_stat.commitments = Commitments::new(proof.tail);
     let mut inner = PolyVec::new();
@@ -329,32 +329,10 @@ pub fn commit(
     let mut tgh = PolyVec::new();
 
     // step 1: handle inner commitment (t)
-    // 1.1: build t (ie inner)
-    for i in 0..r {
-        full_witness[vector_idx]
-            .0
-            .extend_from_slice(&input_wit.vectors[i].0);
-
-        if proof.chunks[i] != 0 {
-            // fill the rest of full_witness[vector_idx] with zeros
-            full_witness[vector_idx]
-                .0
-                .resize(output_stat.dim, PolyRingElem::zero());
-
-            // each vector (except the first) in the decomposition of
-            // input_wit.vectors[i] is filled with zeros
-            full_witness.resize(
-                full_witness.len() + proof.chunks[i] - 1,
-                PolyVec::zero(output_stat.dim),
-            );
-
-            // apply the matrix A
-            let mut t_i = matrix_a.apply(&full_witness[vector_idx]);
-            inner.concat(&mut t_i);
-
-            // update vector index: filled exactly chunks[i] vectors
-            vector_idx += proof.chunks[i];
-        }
+    for w in &packed_witness.vectors {
+        // apply the matrix A
+        let mut t_i = matrix_a.apply(w);
+        inner.concat(&mut t_i);
     }
 
     if !proof.tail {
@@ -370,14 +348,15 @@ pub fn commit(
         tgh.concat(&mut t);
     }
 
-    // second step: handle garbage
+    // step 2: handle garbage (g)
     if com_params.quadratic_length != 0 {
         // compute quadratic garbage < s_i, s_j >
         let mut big_g: Vec<Vec<PolyRingElem>> = Vec::new();
+        let s = &packed_witness.vectors;
         for i in 0..output_stat.r {
             big_g.push(vec![PolyRingElem::zero(); i + 1]);
             for j in 0..=i {
-                big_g[i][j] += full_witness[i].scalar_prod(&full_witness[j]);
+                big_g[i][j] += s[i].scalar_prod(&s[j]);
             }
         }
 
@@ -443,55 +422,20 @@ pub fn commit(
 
 #[cfg(test)]
 mod tests {
+    use crate::{generate_context, random_seed};
+
     use super::*;
-
-    #[test]
-    fn commit_tail_simple_a() {
-        let dim = 3;
-        let r = 4;
-        let com_rank_1 = 3;
-        // create a bidiagonal matrix
-        let matrix_a: PolyMatrix = PolyMatrix(
-            (0..com_rank_1)
-                .map(|i| {
-                    let mut line = vec![PolyRingElem::zero(); dim];
-                    line[i] = PolyRingElem::one();
-                    line[(i + 1) % dim] = PolyRingElem::one();
-                    line
-                })
-                .collect(),
-        );
-
-        // generate random witness
-        let mut seed: <ChaCha8Rng as SeedableRng>::Seed = Default::default();
-        rand::rng().fill(&mut seed);
-        let mut rng = ChaCha8Rng::from_seed(seed);
-        let witness: Vec<PolyVec> = (0..r).map(|_| PolyVec::random(dim, &mut rng)).collect();
-
-        let mut expected_result: Vec<PolyVec> = vec![PolyVec::zero(com_rank_1); dim];
-
-        for i in 0..dim {
-            for j in 0..com_rank_1 {
-                expected_result[i].0[j] = &witness[i].0[j] + &witness[i].0[(j + 1) % dim];
-            }
-        }
-
-        let mut inner = PolyVec::new();
-        inner_commit_tail(&mut inner, &witness, &matrix_a);
-
-        for (chunk, res) in inner.0.chunks_exact(com_rank_1).zip(expected_result.iter()) {
-            assert_eq!(chunk, res.0)
-        }
-    }
 
     #[test]
     fn commit_tail_dimensions() {
         let r: usize = 5;
         let dim: usize = 5;
         let tail = true;
-        let (wit, mut proof, stat) = random_context(r, dim, tail);
 
-        let mut output_stat = Statement::new(&proof, &stat.hash);
+        let seed = random_seed();
+        let (wit, mut proof, stat) = generate_context(r, dim, tail, seed);
+
+        let mut output_stat = Statement::new(&proof, &stat.hash, None);
         let mut output_wit = Witness::new(&output_stat);
 
         // commit
@@ -519,9 +463,10 @@ mod tests {
         let r: usize = 5;
         let dim: usize = 5;
         let tail = false;
-        let (wit, mut proof, stat) = random_context(r, dim, tail);
+        let seed = random_seed();
+        let (wit, mut proof, stat) = generate_context(r, dim, tail, seed);
 
-        let mut output_stat = Statement::new(&proof, &stat.hash);
+        let mut output_stat = Statement::new(&proof, &stat.hash, None);
         let mut output_wit = Witness::new(&output_stat);
 
         // commit

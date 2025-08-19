@@ -9,6 +9,7 @@ use crate::{
 
 /// A degree 2 polynomial equation in the `r` witness vectors s_1, ..., s_r in
 /// R_p^n:
+///
 /// ```
 /// sum(a_{i,j} <s_i, s_j>) + sum(<b_i, s_i>) + c = 0
 /// ```
@@ -16,12 +17,18 @@ use crate::{
 /// * a_{i,j} is in R_p
 /// * b_i is in R_p^n
 /// * c is in R_p
+///
+/// This is stored as one quadratic equation on a single vector `s'`:
+/// ```
+/// < s', As' > + < B, s' > + c = 0
+/// ```
+/// where `s' = s_1 || ... || s_r`.
 #[allow(dead_code)]
 #[derive(Debug)]
 pub struct Constraint {
     pub degree: usize,
     pub quadratic_part: SparsePolyMatrix,
-    pub linear_part: Vec<PolyVec>,
+    pub linear_part: PolyVec,
     pub constant: PolyRingElem,
 }
 
@@ -30,18 +37,46 @@ impl Constraint {
         Self {
             degree,
             quadratic_part: SparsePolyMatrix(Vec::new()),
-            linear_part: Vec::new(),
+            linear_part: PolyVec::new(),
             constant: PolyRingElem::zero(),
         }
     }
+
+    /// Generate a new constraint.
     pub fn new() -> Self {
         Self::new_raw(1)
     }
 
+    /// Join two `Constraint`s into one that works on concatenated vectors.
+    ///
+    /// If `self.check(v1) == true` and `other.check(v2) == true`, then
+    /// `self.join(other).check(v1 || v2) == true`.
+    #[allow(dead_code)]
+    pub fn join(self, other: Self) -> Self {
+        let offset: usize = self.linear_part.0.len();
+
+        let constant = self.constant + other.constant;
+        let linear_part = PolyVec::join(&[self.linear_part, other.linear_part]);
+        let mut quadratic_part = self.quadratic_part;
+
+        other
+            .quadratic_part
+            .0
+            .into_iter()
+            .for_each(|(i, j, coef)| quadratic_part.0.push((i + offset, j + offset, coef)));
+        Self {
+            degree: self.degree,
+            quadratic_part,
+            linear_part,
+            constant,
+        }
+    }
+
     /// Consume `self` to create a new equivalent constraint on the decomposed
     /// witness.
+    #[allow(dead_code)]
     pub fn decomp(self, base: usize, len: usize) -> Self {
-        let r = self.linear_part.len();
+        let dim = self.linear_part.0.len();
 
         // quadratic part
         let mut quad_hashmap: HashMap<(usize, usize), PolyRingElem> = HashMap::new();
@@ -49,11 +84,11 @@ impl Constraint {
         for (i, j, coef) in self.quadratic_part.0 {
             // decompose s_i = sum(k, (2 ^ (base * k)) s_ik)
             for k in 0..len {
-                let new_i = i + k * r;
+                let new_i = i + k * dim;
 
                 // decompose s_j = sum(l, (2 ^ (base * l)) s_jl)
                 for l in 0..len {
-                    let new_j = j + l * r;
+                    let new_j = j + l * dim;
 
                     let mut to_add = &BaseRingElem::from(1 << (base * (k + l))) * &coef;
                     if k != l {
@@ -77,16 +112,16 @@ impl Constraint {
 
         // linear part
         let mut to_append = self.linear_part.clone();
-        let mut linear_part: Vec<PolyVec> = Vec::with_capacity(len * r);
+        let mut linear_part: Vec<PolyVec> = Vec::with_capacity(len);
 
         for _ in 0..len {
-            linear_part.extend_from_slice(&to_append);
+            linear_part.push(to_append.clone());
 
             // multiply to_append by 2^base
-            to_append
-                .iter_mut()
-                .for_each(|polyvec| *polyvec *= &BaseRingElem::from(1 << base));
+            to_append *= &BaseRingElem::from(1 << base);
         }
+
+        let linear_part = PolyVec::join(&linear_part);
 
         Self {
             degree: self.degree,
@@ -97,16 +132,16 @@ impl Constraint {
     }
 
     /// Create 256 linear constraints from a `JLMatrix` array of size `r` and `r` vectors.
-    pub fn from_jl_proj(jl_matrices: &[JLMatrix], witness: &[PolyVec], r: usize) -> Vec<Self> {
-        let mut all_linear_parts: Vec<Vec<PolyVec>> = vec![vec![PolyVec::new(); r]; 256];
+    pub fn from_jl_proj(jl_matrices: &[JLMatrix], witness: &[PolyVec]) -> Vec<Self> {
+        let mut all_linear_parts: Vec<PolyVec> = vec![PolyVec::new(); 256];
         let mut all_constants: Vec<PolyRingElem> = vec![PolyRingElem::zero(); 256];
 
         for (i, jl_matrix) in jl_matrices.iter().enumerate() {
-            let rows = jl_matrix.as_polyvecs_inverted();
+            let mut rows = jl_matrix.as_polyvecs_inverted();
 
             for j in 0..256 {
                 all_constants[j] -= rows[j].scalar_prod(&witness[i]);
-                all_linear_parts[j][i] += &rows[j];
+                all_linear_parts[j].concat(&mut rows[j]);
             }
         }
 
@@ -123,21 +158,20 @@ impl Constraint {
     }
 }
 
+/// Aggregate several constraints acting on the same vector space.
 pub fn aggregate_constraints(
-    dim: usize,
     r: usize,
+    dim: usize,
     constraints: &[Constraint],
     challenges: &[BaseRingElem],
 ) -> Constraint {
-    let mut linear_part: Vec<PolyVec> = vec![PolyVec::zero(dim); r];
+    let mut linear_part: PolyVec = PolyVec::zero(r * dim);
     let mut constant: PolyRingElem = PolyRingElem::zero();
 
     for (challenge, constraint) in challenges.iter().zip(constraints.iter()) {
         let poly_challenge: PolyRingElem = (*challenge).into();
         // update linear_part
-        for (polyvec_l, polyvec_r) in linear_part.iter_mut().zip(constraint.linear_part.iter()) {
-            polyvec_l.add_mul_assign(&poly_challenge, polyvec_r);
-        }
+        linear_part.add_mul_assign(&poly_challenge, &constraint.linear_part);
         // update constant
         constant += challenge * &constraint.constant;
     }

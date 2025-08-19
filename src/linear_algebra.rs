@@ -1,8 +1,12 @@
-use std::ops::{Add, AddAssign, Mul, MulAssign, Neg};
+use std::ops::{Add, AddAssign, Mul, MulAssign};
 
 use crate::ring::{BaseRingElem, PolyRingElem};
 
 use rand_chacha::ChaCha8Rng;
+use sha3::{
+    Shake128,
+    digest::{ExtendableOutput, Update, XofReader},
+};
 
 #[derive(Clone, Debug)]
 pub struct PolyVec(pub Vec<PolyRingElem>);
@@ -35,6 +39,17 @@ impl PolyVec {
     /// Check if this `PolyVec` is the zero vector.
     pub fn is_zero(&self) -> bool {
         self.0.iter().all(|coord| coord.is_zero())
+    }
+
+    /// Compute scalar product with another `PolyVec`.
+    pub fn scalar_prod_raw(left: &[PolyRingElem], right: &[PolyRingElem]) -> PolyRingElem {
+        let mut result = PolyRingElem::zero();
+
+        for (c_self, c_other) in left.iter().zip(right.iter()) {
+            result += c_self * c_other;
+        }
+
+        result
     }
 
     /// Compute scalar product with another `PolyVec`.
@@ -119,14 +134,15 @@ impl PolyVec {
             let start = split_dim * regular_chunks;
             let mut last_chunk = self.0[start..].to_vec();
             last_chunk.resize(split_dim, PolyRingElem::zero());
+
+            result.push(PolyVec(last_chunk));
         }
 
         result
     }
 
-    /// See a `PolyVec` as an array of `u8`, return an iterator over such an array.
-    pub fn iter_bytes(&self) -> impl Iterator<Item = u8> {
-        self.0
+    pub fn iter_bytes_raw(raw_vec: &[PolyRingElem]) -> impl Iterator<Item = u8> {
+        raw_vec
             .iter()
             .map(|poly| {
                 poly.element
@@ -137,12 +153,53 @@ impl PolyVec {
             .flatten()
     }
 
+    /// See a `PolyVec` as an array of `u8`, return an iterator over such an array.
+    pub fn iter_bytes(&self) -> impl Iterator<Item = u8> {
+        PolyVec::iter_bytes_raw(&self.0)
+    }
+
+    pub fn hash_raw(raw_vec: &[PolyRingElem]) -> String {
+        let mut hasher = Shake128::default();
+        hasher.update(&PolyVec::iter_bytes_raw(raw_vec).collect::<Vec<_>>());
+        let mut reader = hasher.finalize_xof();
+        let mut hashbuf = [0_u8; 32];
+        reader.read(&mut hashbuf);
+
+        hex::encode(hashbuf)
+    }
+    pub fn hash(&self) -> String {
+        PolyVec::hash_raw(&self.0)
+    }
+
+    pub fn hash_many(splice: &[PolyVec]) -> String {
+        let mut hasher = Shake128::default();
+        for polyvec in splice {
+            hasher.update(&polyvec.iter_bytes().collect::<Vec<_>>());
+        }
+        let mut reader = hasher.finalize_xof();
+        let mut hashbuf = [0_u8; 32];
+        reader.read(&mut hashbuf);
+
+        hex::encode(hashbuf)
+    }
+
     /// Generate an uniformly random `PolyVec` from a given RNG.
     pub fn random(dim: usize, rng: &mut ChaCha8Rng) -> Self {
-        let mut vec: Vec<PolyRingElem> = Vec::new();
+        let mut vec: Vec<PolyRingElem> = Vec::with_capacity(dim);
 
         for _ in 0..dim {
             vec.push(PolyRingElem::random(rng))
+        }
+
+        Self(vec)
+    }
+
+    /// Generate a vector of challenges from a given RNG.
+    pub fn challenge(dim: usize, rng: &mut ChaCha8Rng) -> Self {
+        let mut vec: Vec<PolyRingElem> = Vec::with_capacity(dim);
+
+        for _ in 0..dim {
+            vec.push(PolyRingElem::challenge(rng))
         }
 
         Self(vec)
@@ -312,11 +369,13 @@ impl SparsePolyMatrix {
         Self(Vec::new())
     }
 
-    pub fn apply(&self, packed_coefs: &PolyVec, r: usize) -> PolyRingElem {
+    pub fn apply_to_garbage(&self, vector: &PolyVec) -> PolyRingElem {
         let mut result = PolyRingElem::zero();
-        self.0
-            .iter()
-            .for_each(|(i, j, coef)| result += coef * &packed_coefs.0[i * (i + 1) / 2 + j]);
+
+        self.0.iter().for_each(|(i, j, coef)| {
+            let quad_idx = i * (i + 1) / 2;
+            result += coef * &vector.0[quad_idx + j];
+        });
 
         result
     }
@@ -346,6 +405,46 @@ mod tests {
             for i in 0..10 {
                 assert_eq!(result[i], matrix.0[i][j]);
             }
+        }
+    }
+
+    #[test]
+    fn sparse_canonical_basis() {
+        let r: usize = 20;
+        let non_zero_len: usize = 5;
+
+        let mut seed: <ChaCha8Rng as SeedableRng>::Seed = Default::default();
+        rand::rng().fill(&mut seed);
+        let mut rng = ChaCha8Rng::from_seed(seed);
+
+        let mut matrix = SparsePolyMatrix::new();
+
+        let mut left = (0..r).collect::<Vec<_>>();
+        left.shuffle(&mut rng);
+        left.resize(non_zero_len, 0);
+
+        let mut right = (0..r).collect::<Vec<_>>();
+        right.shuffle(&mut rng);
+        right.resize(non_zero_len, 0);
+
+        let mut coef_flat: Vec<PolyRingElem> = vec![PolyRingElem::zero(); r * (r + 1) / 2];
+
+        for (l, r) in left.into_iter().zip(right.into_iter()) {
+            let coef = PolyRingElem::random(&mut rng);
+            let i = l.max(r);
+            let j = l.min(r);
+
+            coef_flat[i * (i + 1) / 2 + j] = coef.clone();
+
+            println!("generated quadratic: {i}, {j}, {coef:?}");
+            matrix.0.push((i, j, coef));
+        }
+
+        for (i, coef) in coef_flat.iter().enumerate() {
+            let mut vector: PolyVec = PolyVec::zero(r * (r + 1) / 2);
+            vector.0[i] = PolyRingElem::one();
+
+            assert_eq!(&matrix.apply_to_garbage(&vector), coef);
         }
     }
 }

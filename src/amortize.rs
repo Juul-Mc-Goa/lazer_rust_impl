@@ -1,5 +1,5 @@
 use crate::{
-    commit::{CommitKey, CommitKeyData, CommitParams, Commitments},
+    commit::{CommitKey, CommitKeyData, Commitments},
     constants::{DEGREE, PRIME_BYTES_LEN},
     linear_algebra::PolyVec,
     proof::Proof,
@@ -23,6 +23,7 @@ pub fn amortize_tail(
     tmp_wit: &Witness,
 ) {
     let r = output_stat.r;
+    let dim = output_stat.dim;
     let z_base = output_stat.commit_params.z_base;
     let z_len = output_stat.commit_params.z_length;
     let mut h: Vec<PolyRingElem> = Vec::with_capacity(2 * r);
@@ -42,8 +43,8 @@ pub fn amortize_tail(
 
     // compute < phi_0, s_0 >
     let mut s_acc = s[0].clone();
-    let mut phi_acc = phi[0].clone();
-    h.push(phi[0].scalar_prod(&s_acc));
+    let mut phi_acc = PolyVec(phi.0[..dim].to_vec());
+    h.push(phi_acc.scalar_prod(&s_acc));
 
     // shake128(output_stat.hash || h[0])
     let mut hasher = Shake128::default();
@@ -56,11 +57,13 @@ pub fn amortize_tail(
 
     for i in 1..r {
         // compute h[2i - 1]
-        h.push(phi[i].scalar_prod(&s_acc));
+        let (start, end) = (dim * i, dim * (i + 1));
+        let phi_i = PolyVec(phi.0[start..end].to_vec());
+        h.push(phi_i.scalar_prod(&s_acc));
         h[2 * i - 1] += phi_acc.scalar_prod(&s[i]);
 
         // compute h[2i]
-        h.push(phi[i].scalar_prod(&s[i]));
+        h.push(phi_i.scalar_prod(&s[i]));
 
         // generate challenges[i]: update hashbuf
         let mut hasher = Shake128::default();
@@ -75,7 +78,7 @@ pub fn amortize_tail(
 
         // update s_acc, phi_acc
         s_acc.add_mul_assign(&challenges[i], &s[i]);
-        phi_acc.add_mul_assign(&challenges[i], &phi[i]);
+        phi_acc.add_mul_assign(&challenges[i], &phi_i);
     }
 
     let Commitments::Tail {
@@ -105,7 +108,7 @@ pub fn amortize_tail(
     output_wit.vectors = new_wit;
 
     proof.norm_square = output_stat.squared_norm_bound;
-    phi.resize(output_stat.dim, PolyVec::new());
+    phi.0.resize(dim * r, PolyRingElem::zero());
 }
 
 /// Transform a witness `(s_1, ..., ,s_r)` into a new witness `(z, t, g, h)`.
@@ -120,6 +123,7 @@ pub fn amortize_tail(
 ///   `h_ij = (< b_i, s_j > + < b_j, s_i >) / 2` (where `i <= j`)
 pub fn amortize(
     output_stat: &mut Statement,
+    input_stat: &Statement,
     output_wit: &mut Witness,
     proof: &mut Proof,
     packed_wit: &Witness,
@@ -128,56 +132,52 @@ pub fn amortize(
         amortize_tail(output_stat, output_wit, proof, packed_wit);
     }
 
-    let Statement {
-        r,
-        dim,
-        dim_inner: _,
-        tail: _,
-        commit_params:
-            CommitParams {
-                z_base,
-                z_length: z_len,
-                uniform_base: unif_base,
-                uniform_length: unif_len,
-                quadratic_base: _,
-                quadratic_length: quad_len,
-                commit_rank_1: _,
-                commit_rank_2: com_rank_2,
-                ..
-            },
-        commitments:
-            Commitments::NoTail {
-                inner: _,
-                u1: _,
-                u2,
-            },
-        challenges,
-        constraint,
-        squared_norm_bound,
-        hash,
-        commit_key,
-    } = output_stat
+    let (r, dim, squared_norm_bound, hash, commit_key) = (
+        output_stat.r,
+        output_stat.dim,
+        &mut output_stat.squared_norm_bound,
+        &mut output_stat.hash,
+        &output_stat.commit_key,
+    );
+
+    let (z_base, z_len, unif_base, unif_len, com_rank_2) = (
+        output_stat.commit_params.z_base,
+        output_stat.commit_params.z_length,
+        output_stat.commit_params.uniform_base,
+        output_stat.commit_params.uniform_length,
+        output_stat.commit_params.commit_rank_2,
+    );
+
+    let Commitments::NoTail {
+        inner: _,
+        u1: _,
+        u2,
+    } = &mut output_stat.commitments
     else {
-        panic!("amortize: output statement is `Tail`");
+        panic!("wrong `Tail` variant for output statement's commitments");
     };
-    let (dim, r, z_len, unif_base, unif_len, com_rank_2) =
-        (*dim, *r, *z_len, *unif_base, *unif_len, *com_rank_2);
+
+    let (challenges, constraint) = (&input_stat.challenges, &input_stat.constraint);
 
     // compute linear garbage
     let linear_part = &constraint.linear_part;
     let dim_h = unif_len * r * (r + 1) / 2;
-    println!("amortize: dim_h = {dim_h}");
     let mut h: PolyVec = PolyVec(Vec::with_capacity(dim_h));
 
+    let mut sum_h_ii = PolyRingElem::zero();
     for i in 0..r {
+        let lin_i = PolyVec(linear_part.0[(dim * i)..(dim * (i + 1))].to_vec());
         for j in 0..i {
+            let lin_j = PolyVec(linear_part.0[(dim * j)..(dim * (j + 1))].to_vec());
             h.0.push(
-                linear_part[i].scalar_prod(&packed_wit.vectors[j])
-                    + linear_part[j].scalar_prod(&packed_wit.vectors[i]),
+                lin_i.scalar_prod(&packed_wit.vectors[j])
+                    + lin_j.scalar_prod(&packed_wit.vectors[i]),
             );
         }
         // diagonal coef is special
-        h.0.push(linear_part[i].scalar_prod(&packed_wit.vectors[i]));
+        h.0.push(lin_i.scalar_prod(&packed_wit.vectors[i]));
+        sum_h_ii += &h.0[i * (i + 1) / 2 + i];
+        // println!("h_{{{i}, {i}}} = {:?}", h.0[i * (i + 1) / 2 + i]);
     }
 
     // decompose and concatenate linear garbage
@@ -202,8 +202,6 @@ pub fn amortize(
     // sum(j <= i, D_ijk h_ijk)
     add_apply_matrices_garbage(&mut u2.0, matrices_d, &h.0, r, unif_len);
 
-    // println!("amortize: u2 = {u2:?}");
-
     // use u2 to update output_stat.hash
     // initialise hasher
     let mut hasher = Shake128::default();
@@ -218,41 +216,20 @@ pub fn amortize(
 
     // generate challenges
     let mut rng = ChaCha8Rng::from_seed(hashbuf);
-    challenges.resize_with(r, || PolyRingElem::challenge(&mut rng));
+    output_stat
+        .challenges
+        .resize_with(r, || PolyRingElem::challenge(&mut rng));
 
     // compute z
     let mut z = PolyVec::zero(dim);
+
     challenges
         .iter()
         .zip(packed_wit.vectors.iter())
         .for_each(|(c_i, s_i)| z.add_mul_assign(c_i, s_i));
 
-    println!("z: {z:?}");
-
-    let CommitKeyData::NoTail { ref matrix_a, .. } = output_stat.commit_key.data else {
-        panic!("wtf");
-    };
-    let mut diff: PolyVec = matrix_a.apply(&z);
-    diff.neg(); // diff = -Az
-    // diff += sum(i, c_i t_i)
-    let com_rank_1 = output_stat.commit_params.commit_rank_1;
-    let t = output_wit
-        .vectors
-        .last()
-        .unwrap()
-        .clone()
-        .split(unif_len * r * com_rank_1)
-        .0
-        .recompose(unif_base as u64, unif_len);
-    challenges
-        .iter()
-        .zip(t.into_chunks(com_rank_1).iter())
-        .for_each(|(c_i, t_i)| diff.add_mul_assign(c_i, t_i));
-
-    println!("amortize: diff = {diff:?}");
-
     // decompose z
-    let mut z: Vec<PolyVec> = z.decomp(*z_base, z_len);
+    let mut z: Vec<PolyVec> = z.decomp(z_base, z_len);
 
     // new_witness = (z_0, ... z_{z_len - 1}, t || g || h)
     // build new witness: z part

@@ -1,4 +1,4 @@
-use rand::{Rng, SeedableRng, seq::IteratorRandom};
+use rand::{Rng, SeedableRng, seq::SliceRandom};
 use rand_chacha::ChaCha8Rng;
 
 use crate::{
@@ -92,23 +92,32 @@ fn generate_context(r: usize, dim: usize, tail: bool, seed: Seed) -> (Witness, P
 
     // build random quadratic part
     let mut quadratic_part = SparsePolyMatrix::new();
-    let left = (0..r).choose_multiple(&mut rng, 10);
-    let right = (0..r).choose_multiple(&mut rng, 10);
+    let non_zero_len = 3;
+
+    let mut left = (0..r).collect::<Vec<_>>();
+    left.shuffle(&mut rng);
+    left.resize(non_zero_len, 0);
+
+    let mut right = (0..r).collect::<Vec<_>>();
+    right.shuffle(&mut rng);
+    right.resize(non_zero_len, 0);
 
     for (l, r) in left.into_iter().zip(right.into_iter()) {
         let coef = PolyRingElem::random(&mut rng);
         constant += &coef * witness.vectors[l].scalar_prod(&witness.vectors[r]);
-        quadratic_part.0.push((l, r, coef));
+        let i = l.max(r);
+        let j = l.min(r);
+        quadratic_part.0.push((i, j, coef));
     }
 
     // build random linear part
     //       random challenges
-    let mut linear_part: Vec<PolyVec> = Vec::new();
+    let mut linear_part: PolyVec = PolyVec::new();
     let mut challenges: Vec<PolyRingElem> = Vec::new();
     for i in 0..r {
-        let v = PolyVec::random(dim, &mut rng);
+        let mut v = PolyVec::random(dim, &mut rng);
         constant += v.scalar_prod(&witness.vectors[i]);
-        linear_part.push(v);
+        linear_part.concat(&mut v);
 
         challenges.push(PolyRingElem::challenge(&mut rng));
     }
@@ -118,6 +127,12 @@ fn generate_context(r: usize, dim: usize, tail: bool, seed: Seed) -> (Witness, P
     let commit_key = CommitKey::new(tail, r, dim, &commit_params, seed);
     let dim_inner = r * commit_params.uniform_length * commit_params.commit_rank_1;
 
+    let constraint = Constraint {
+        degree: 1,
+        quadratic_part,
+        linear_part,
+        constant,
+    };
     (
         witness,
         proof,
@@ -129,12 +144,7 @@ fn generate_context(r: usize, dim: usize, tail: bool, seed: Seed) -> (Witness, P
             commit_params,
             commitments: Commitments::new(tail),
             challenges,
-            constraint: Constraint {
-                degree: 1,
-                quadratic_part: quadratic_part,
-                linear_part: linear_part,
-                constant: constant,
-            },
+            constraint,
             squared_norm_bound,
             hash: [0; 16],
             commit_key,
@@ -159,24 +169,30 @@ fn main() {
     // commit
     commit(&mut output_stat, &mut output_wit, &mut proof, &wit);
     println!("Committed");
+
     let packed_wit = proof.pack_witness(&wit);
-    println!("new witness:");
+    println!("packed witness:");
     packed_wit.print();
 
     let jl_matrices = project(&mut output_stat, &mut proof, &wit);
     println!("Projected");
 
-    let dim = output_stat.dim;
-    aggregate_constant_coeff(&mut output_stat, &mut proof, &wit, dim, &jl_matrices);
-    aggregate_input_stat(&mut output_stat, &proof, &stat);
+    aggregate_constant_coeff(&mut output_stat, &mut proof, &wit, &jl_matrices);
     println!("Aggregated");
 
-    amortize(&mut output_stat, &mut output_wit, &mut proof, &packed_wit);
+    aggregate_input_stat(&mut output_stat, &proof, &stat);
+    amortize(
+        &mut output_stat,
+        &stat,
+        &mut output_wit,
+        &mut proof,
+        &packed_wit,
+    );
 
     println!("\nOutput statement:");
     output_stat.print();
 
-    println!("Verify:");
-    let result = verify(&output_stat, &output_wit);
-    println!("Result: {result:?}");
+    print!("Verify: ");
+    let result = verify(&output_stat, &stat, &output_wit);
+    println!("{result:?}");
 }

@@ -29,26 +29,28 @@ impl RecursedVector {
     /// Initialize fields with `PolyVec::zero()`.
     fn new(input_stat: &Statement) -> Self {
         let com_params = &input_stat.commit_params;
+        let z_len = input_stat.commit_params.z_length;
+        let unif_len = input_stat.commit_params.uniform_length;
+        let quad_len = input_stat.commit_params.quadratic_length;
         let dim = input_stat.dim;
         let r = input_stat.r;
         let quad_number = r * (r + 1) / 2;
 
-        let z_part = vec![PolyVec::zero(dim); com_params.z_length];
-        let t_part =
-            vec![vec![PolyVec::zero(com_params.commit_rank_1); r]; com_params.uniform_length];
-        let g_part = vec![PolyVec::zero(quad_number); com_params.quadratic_length];
-        let h_part = vec![PolyVec::zero(quad_number); com_params.uniform_length];
+        let z = vec![PolyVec::zero(dim); z_len];
+        let t = vec![vec![PolyVec::zero(com_params.commit_rank_1); r]; unif_len];
+        let g = vec![PolyVec::zero(quad_number); quad_len];
+        let h = vec![PolyVec::zero(quad_number); unif_len];
 
         Self {
-            z_part,
-            t_part,
-            g_part,
-            h_part,
+            z_part: z,
+            t_part: t,
+            g_part: g,
+            h_part: h,
         }
     }
 
     /// Generate a linear constraint on the split witnesses.
-    pub fn to_lin_constraint(self, proof: &Proof) -> Vec<PolyVec> {
+    pub fn to_lin_constraint(self, proof: &Proof) -> PolyVec {
         let split_dim = proof.split_dim;
         let mut result: Vec<PolyVec> = Vec::new();
 
@@ -69,7 +71,7 @@ impl RecursedVector {
         // split v into vectors of dimension `split_dim`
         result.append(&mut v.into_chunks(split_dim));
 
-        result
+        PolyVec::join(&result)
     }
 
     /// Build linear part of the constraint:
@@ -84,18 +86,19 @@ impl RecursedVector {
         com_params: &CommitParams,
         input_stat: &Statement,
     ) {
-        // update self.t_part
+        // update self.t
         for k in 0..com_params.uniform_length {
             for i in 0..input_stat.r {
                 self.t_part[k][i] = matrices_b[k][i].apply_transpose(&c_1);
             }
         }
 
-        // update self.g_part
+        // update self.g
         for k in 0..com_params.quadratic_length {
             for i in 0..input_stat.r {
-                for (j, poly) in matrices_c[k][i].apply_transpose(&c_1).0.iter().enumerate() {
-                    self.g_part[k].0[i * (i + 1) / 2 + j] += poly;
+                for (j, coord) in matrices_c[k][i].apply_transpose(&c_1).0.iter().enumerate() {
+                    let quad_i = i * (i + 1) / 2;
+                    self.g_part[k].0[quad_i + j] += coord;
                 }
             }
         }
@@ -114,7 +117,8 @@ impl RecursedVector {
         for k in 0..com_params.uniform_length {
             for i in 0..input_stat.r {
                 for (j, poly) in matrices_d[k][i].apply_transpose(&c_2).0.iter().enumerate() {
-                    self.h_part[k].0[i * (i + 1) / 2 + j] += poly;
+                    let quad_i: usize = i * (i + 1) / 2;
+                    self.h_part[k].0[quad_i + j] += poly;
                 }
             }
         }
@@ -127,6 +131,7 @@ impl RecursedVector {
         matrix_a: &PolyMatrix,
         com_params: &CommitParams,
         input_stat: &Statement,
+        challenges: &[PolyRingElem],
     ) {
         // matrix_part = -transpose(A) * c_z
         let mut matrix_part = matrix_a.apply_transpose(c_z);
@@ -134,7 +139,7 @@ impl RecursedVector {
 
         let z_base_mod_p: BaseRingElem = (1 << com_params.z_base as u64).into();
 
-        // update self.z_part
+        // update self.z
         for k in 0..com_params.z_length {
             self.z_part[k] += &matrix_part;
             matrix_part *= &z_base_mod_p;
@@ -142,15 +147,13 @@ impl RecursedVector {
 
         let unif_base_mod_p: BaseRingElem = (1 << com_params.uniform_base as u64).into();
 
-        // update self.t_part
+        // update self.t
         for i in 0..input_stat.r {
-            let mut t_i_part = c_z.clone();
-            t_i_part *= &input_stat.challenges[i];
+            let mut t_i = c_z * &challenges[i];
 
             for k in 0..com_params.uniform_length {
-                self.t_part[k][i] += &t_i_part;
-                // t_i_part.mul_assign(unif_base_mod_p);
-                t_i_part *= &unif_base_mod_p;
+                self.t_part[k][i] += &t_i;
+                t_i *= &unif_base_mod_p;
             }
         }
     }
@@ -164,15 +167,17 @@ impl RecursedVector {
         c_g: &PolyRingElem,
         com_params: &CommitParams,
         input_stat: &Statement,
+        challenges: &[PolyRingElem],
     ) {
         let mut k_part = -c_g.clone();
         let quad_base_mod_p: BaseRingElem = (1 << com_params.quadratic_base as u64).into();
 
         for k in 0..com_params.quadratic_length {
             for i in 0..input_stat.r {
-                let i_part = &k_part * &input_stat.challenges[i];
-                for j in i..input_stat.r {
-                    self.g_part[k].0[i * (i + 1) / 2 + j] += &i_part * &input_stat.challenges[j];
+                let i_part = &k_part * &challenges[i];
+                for j in 0..=i {
+                    let quad_i: usize = i * (i + 1) / 2;
+                    self.g_part[k].0[quad_i + j] += &i_part * &challenges[j];
                 }
             }
 
@@ -181,39 +186,47 @@ impl RecursedVector {
     }
 
     /// Build constraint:
-    /// `sum(i, < c_i linear_part[i], z >) = sum(ij, c_i c_j h_ij)`.
+    /// `< sum(i, c_i b_i), z > = sum(ij, c_i c_j h_ij)`.
     fn add_h_constraint(
         &mut self,
-        linear_part: &[PolyVec],
+        linear_part: &PolyVec,
         com_params: &CommitParams,
         input_stat: &Statement,
+        challenges: &[PolyRingElem],
     ) {
+        // step 1: < -sum(i, c_i b_i), z >
+        // update self.z
         let z_base_mod_p: BaseRingElem = (1 << com_params.z_base as u64).into();
+        let linear_part = linear_part.clone().into_chunks(input_stat.dim);
+        let mut lin_aggregate = PolyVec::zero(input_stat.dim);
+        linear_part
+            .iter()
+            .zip(challenges.iter())
+            .for_each(|(b_i, c_i)| lin_aggregate.add_mul_assign(c_i, b_i));
+        lin_aggregate.neg();
 
-        // update self.z_part
-        for part in linear_part {
-            let mut k_part = part.clone();
-
-            for k in 0..com_params.z_length {
-                self.z_part[k] += &k_part;
-                k_part *= &z_base_mod_p;
-            }
+        for k in 0..com_params.z_length {
+            self.z_part[k] += &lin_aggregate;
+            lin_aggregate *= &z_base_mod_p;
         }
 
-        let mut k_part = PolyRingElem::one();
+        // step 2: sum(ij, c_i c_j h_ij)
+        // update self.h
         let unif_base_mod_p: BaseRingElem = (1 << com_params.uniform_base as u64).into();
+        let mut k_part = PolyRingElem::one();
 
-        // update self.h_part
-        for k in 0..com_params.uniform_length {
-            for i in 0..input_stat.r {
-                let i_part = &k_part * &input_stat.challenges[i];
-                for j in i..input_stat.r {
-                    self.h_part[k].0[i * (i + 1) / 2 + j] += &i_part * &input_stat.challenges[j];
-                }
-            }
+        (0..com_params.uniform_length).for_each(|k| {
+            (0..input_stat.r).for_each(|i| {
+                let quad_i: usize = i * (i + 1) / 2;
+                let i_part: PolyRingElem = &k_part * &challenges[i];
 
-            k_part = k_part * unif_base_mod_p;
-        }
+                (0..=i).for_each(|j| {
+                    self.h_part[k].0[quad_i + j] += &i_part * &challenges[j];
+                });
+            });
+
+            k_part *= unif_base_mod_p;
+        });
     }
 
     /// Build linear part of the constraint:
@@ -232,16 +245,18 @@ impl RecursedVector {
         let quad_base_mod_p: BaseRingElem = (1 << com_params.quadratic_base as u64).into();
         let unif_base_mod_p: BaseRingElem = (1 << com_params.uniform_base as u64).into();
 
-        // update self.g_part
+        // update self.g
         for (i, j, coef) in quadratic_part.0.iter() {
+            let quad_i = i * (i + 1) / 2;
             let mut scaled_coef = c_agg * coef;
+
             for k in 0..com_params.quadratic_length {
-                self.g_part[k].0[i * (i + 1) + j] += &scaled_coef;
+                self.g_part[k].0[quad_i + j] += &scaled_coef;
                 scaled_coef = scaled_coef * quad_base_mod_p;
             }
         }
 
-        // update self.h_part
+        // update self.h
         for i in 0..input_stat.r {
             let h_ii_idx = i * (i + 1) / 2 + i;
             let mut scaled_coef = c_agg.clone();
@@ -289,7 +304,7 @@ pub fn aggregate_input_stat(output_stat: &mut Statement, proof: &Proof, input_st
     // 3 more constraints:
     //   1. < z, z > = sum(ij, g_ij c_i c_j)
     //   2. sum(i, c_i < lin_part[i], z >) = sum(ij, h_ij c_i c_j)
-    //   3. sum(ij, a_ij g_ij) + sum(i, h_ii) - b = 0
+    //   3. sum(ij, a_ij g_ij) + sum(i, h_ii) + c = 0
     //
     // we will generate 2 * com_rank_2 + com_rank_1 + 2 challenges
     //   1. c_1 of rank com_rank_2 (for u_1)
@@ -309,11 +324,16 @@ pub fn aggregate_input_stat(output_stat: &mut Statement, proof: &Proof, input_st
     hashbuf[..16].copy_from_slice(&output_stat.hash);
     let mut rng = ChaCha8Rng::from_seed(hashbuf);
 
-    let c_1: PolyVec = PolyVec::random(com_rank2, &mut rng);
-    let c_2: PolyVec = PolyVec::random(com_rank2, &mut rng);
-    let c_z: PolyVec = PolyVec::random(com_rank1, &mut rng);
-    let c_g: PolyRingElem = PolyRingElem::random(&mut rng);
-    let c_agg: PolyRingElem = PolyRingElem::random(&mut rng);
+    let c_1: PolyVec = PolyVec::challenge(com_rank2, &mut rng);
+    let c_2: PolyVec = PolyVec::challenge(com_rank2, &mut rng);
+    let c_z: PolyVec = PolyVec::challenge(com_rank1, &mut rng);
+    let c_g: PolyRingElem = PolyRingElem::challenge(&mut rng);
+    let c_agg: PolyRingElem = PolyRingElem::challenge(&mut rng);
+    // let c_1: PolyVec = PolyVec::zero(com_rank2);
+    // let c_2: PolyVec = PolyVec::zero(com_rank2);
+    // let c_z: PolyVec = PolyVec::zero(com_rank1);
+    // let c_g: PolyRingElem = PolyRingElem::zero();
+    // let c_agg: PolyRingElem = PolyRingElem::zero();
 
     let CommitKeyData::NoTail {
         matrix_a,
@@ -333,19 +353,25 @@ pub fn aggregate_input_stat(output_stat: &mut Statement, proof: &Proof, input_st
 
     // handle u1:
     recursed_vector.add_u1_constraint(&c_1, matrices_b, matrices_c, &com_params, input_stat);
-    output_stat.constraint.constant -= c_1.scalar_prod(u1);
+    output_stat.constraint.constant = -c_1.scalar_prod(u1);
 
     // handle u2:
     recursed_vector.add_u2_constraint(&c_2, matrices_d, &com_params, input_stat);
     output_stat.constraint.constant -= c_2.scalar_prod(u2);
 
     // handle z:
-    recursed_vector.add_inner_constraint(&c_z, matrix_a, &com_params, input_stat);
+    recursed_vector.add_inner_constraint(
+        &c_z,
+        matrix_a,
+        &com_params,
+        input_stat,
+        &input_stat.challenges,
+    );
 
     // if the quadratic part in `input_stat` is non-empty:
     if !input_stat.constraint.quadratic_part.0.is_empty() {
         // handle g:
-        recursed_vector.add_g_constraint(&c_g, &com_params, input_stat);
+        recursed_vector.add_g_constraint(&c_g, &com_params, input_stat, &input_stat.challenges);
 
         // handle quadratic part:
         //   - z = sum(
@@ -396,7 +422,12 @@ pub fn aggregate_input_stat(output_stat: &mut Statement, proof: &Proof, input_st
     }
 
     // handle h:
-    recursed_vector.add_h_constraint(&input_stat.constraint.linear_part, &com_params, input_stat);
+    recursed_vector.add_h_constraint(
+        &input_stat.constraint.linear_part,
+        &com_params,
+        input_stat,
+        &input_stat.challenges,
+    );
 
     // handle aggregated relation:
     recursed_vector.add_agg_constraint(
@@ -405,7 +436,7 @@ pub fn aggregate_input_stat(output_stat: &mut Statement, proof: &Proof, input_st
         &com_params,
         input_stat,
     );
-    output_stat.constraint.constant += c_agg * &input_stat.constraint.constant;
+    output_stat.constraint.constant += &c_agg * &input_stat.constraint.constant;
 
     // copy recursed vector to linear part of the output constraint
     output_stat.constraint.linear_part = recursed_vector.to_lin_constraint(proof);

@@ -69,10 +69,11 @@ impl JLMatrix {
     /// Each `PolyVec` represents a line in the matrix.
     pub fn as_polyvecs(&self) -> Vec<PolyVec> {
         let mut result: Vec<PolyVec> = Vec::new();
+        let degree_bytes = DEGREE as usize >> 3;
 
-        for packed_v in self.data.chunks_exact(self.dim) {
+        for packed_v in self.data.chunks_exact(degree_bytes * self.dim) {
             let mut new_v = PolyVec::new();
-            for packed_poly in packed_v.chunks_exact(DEGREE as usize >> 3) {
+            for packed_poly in packed_v.chunks_exact(degree_bytes) {
                 let mut new_poly_vec: Vec<u64> = Vec::new();
 
                 for bit in 0..(DEGREE as usize) {
