@@ -137,6 +137,7 @@ impl Constraint {
         let mut all_constants: Vec<PolyRingElem> = vec![PolyRingElem::zero(); 256];
 
         for (i, jl_matrix) in jl_matrices.iter().enumerate() {
+            println!("jl matrix {i}");
             let mut rows = jl_matrix.as_polyvecs_inverted();
 
             for j in 0..256 {
@@ -159,7 +160,7 @@ impl Constraint {
 }
 
 /// Aggregate several constraints acting on the same vector space.
-pub fn aggregate_constraints(
+pub fn aggregate_proj_constraints(
     r: usize,
     dim: usize,
     constraints: &[Constraint],

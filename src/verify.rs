@@ -290,9 +290,9 @@ pub fn verify(output_stat: &Statement, input_stat: &Statement, witness: &Witness
         let (long_g, long_h) = gh.split(g_len);
 
         z = long_z.recompose(z_base as u64, z_len);
-        t = long_t.clone().recompose(unif_base as u64, unif_len);
-        g = long_g.clone().recompose(quad_base as u64, quad_len);
-        h = long_h.clone().recompose(unif_base as u64, unif_len);
+        t = long_t.recompose(unif_base as u64, unif_len);
+        g = long_g.recompose(quad_base as u64, quad_len);
+        h = long_h.recompose(unif_base as u64, unif_len);
     }
 
     let matrix_a: &PolyMatrix = match &output_stat.commit_key.data {

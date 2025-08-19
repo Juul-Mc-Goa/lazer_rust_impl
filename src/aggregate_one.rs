@@ -1,6 +1,6 @@
 use crate::{
     constants::{PRIME_BYTES_LEN, U128_LEN},
-    constraint::{Constraint, aggregate_constraints, unpack_challenges},
+    constraint::{Constraint, aggregate_proj_constraints, unpack_challenges},
     jl_matrix::JLMatrix,
     proof::Proof,
     ring::{BaseRingElem, PolyRingElem},
@@ -37,6 +37,7 @@ pub fn aggregate_constant_coeff(
 
     // `constraints` contains 256 constraints: one per output coordinate
     let constraints = Constraint::from_jl_proj(jl_matrices, &witness.vectors);
+    println!("aggregate: built constraints",);
 
     for _ in 0..U128_LEN {
         // collaps_jlproj_raw:
@@ -44,6 +45,7 @@ pub fn aggregate_constant_coeff(
         // - output_stat.hash <- hashbuf[..16]
         // - use hashbuf[32..] to generate A_p challenges
         // - use challenges to generate constraint
+
         let mut hasher = Shake128::default();
         hasher.update(&output_stat.hash);
         let mut reader = hasher.finalize_xof();
@@ -53,7 +55,7 @@ pub fn aggregate_constant_coeff(
         output_stat.hash.copy_from_slice(&hashbuf[..16]);
 
         let challenges: [BaseRingElem; 256] = unpack_challenges(&hashbuf[32..]);
-        let constraint = aggregate_constraints(r, dim, &constraints, &challenges);
+        let constraint = aggregate_proj_constraints(r, dim, &constraints, &challenges);
 
         // copy constant to proof.lifting_poly
         proof.lifting_poly.push(constraint.constant.clone());

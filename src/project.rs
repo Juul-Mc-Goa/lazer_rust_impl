@@ -89,7 +89,6 @@ pub fn project(statement: &mut Statement, proof: &mut Proof, wit: &Witness) -> V
 
         let mut cipher =
             Aes128Ctr64LE::new(&hashbuf_right.into(), &proof.jl_nonce.to_le_bytes().into());
-        proof.projection.fill(BaseRingElem::zero());
 
         for i in 0..wit.r {
             let jl_matrix = JLMatrix::random(wit.dim[i], &mut cipher);
