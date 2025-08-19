@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 aes = "*"
 ctr = "*"
+hex = "*"
 lazy_static = "1.5.0"
 rand = "*"
 rand_chacha = "*"
