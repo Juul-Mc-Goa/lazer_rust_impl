@@ -68,7 +68,7 @@ pub fn proj_norm_square(projected: &[BaseRingElem; 256]) -> u128 {
 }
 
 /// "Project" (not really a projection actually but anyway) `wit` into a vector
-/// of dimension 256 over `Z/pZ`.  Produce the random matrix with an AES in CTR
+/// of dimension 256 over `A_p = Z/pZ`.  Produce the random matrix with an AES in CTR
 /// mode, store the nonce in `proof.jl_nonce`.  Hash the resulting vector and
 /// store it in `statement.hash`.
 #[allow(dead_code)]

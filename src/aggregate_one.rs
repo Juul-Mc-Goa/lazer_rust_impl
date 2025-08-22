@@ -62,6 +62,9 @@ pub fn collaps_jl_matrices(
     }
 }
 
+/// Compute `proof.liftin_poly` from `constraint`.
+///
+/// Also update `constraint.constant` and `output_stat.constraint`.
 pub fn generate_lifting_poly(
     output_stat: &mut Statement,
     proof: &mut Proof,

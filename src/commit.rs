@@ -268,12 +268,9 @@ impl Commitments {
 
 /// Commit:
 /// - modify `output_stat.commitments`
-///   - if `proof.tail` is true:
-///     - inner commitment is all `t_i = As_i`
-///     - garbage is all `< s_i, s_j >`
-///   - if `proof.tail` is false:
-///     - inner commitment is all `t_i = As_i`
-///     - `u1 = Bt + Cg`
+///   - inner commitment is all `t_i = As_i`
+///   - if `proof.tail` is true: `garbage` is all `< s_i, s_j >`
+///   - if `proof.tail` is false: `u1 = Bt + Cg`
 /// - modify `output_wit`
 ///   - resize `input_wit.s_i` and append to `output_wit`
 ///   - push a last element: `t || g || h`
@@ -329,9 +326,9 @@ pub fn commit(
     let mut tgh = PolyVec::new();
 
     // step 1: handle inner commitment (t)
-    for w in &packed_witness.vectors {
+    for s_i in &packed_witness.vectors {
         // apply the matrix A
-        let mut t_i = matrix_a.apply(w);
+        let mut t_i = matrix_a.apply(s_i);
         inner.concat(&mut t_i);
     }
 
@@ -344,7 +341,7 @@ pub fn commit(
 
         // update u1
         add_apply_matrices_b(&mut u1.0, matrices_b, &t.0, r, com_params);
-        // update: tgh <- t
+        // update: tgh = t
         tgh.concat(&mut t);
     }
 

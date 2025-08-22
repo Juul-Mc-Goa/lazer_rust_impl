@@ -271,7 +271,7 @@ impl RecursedVector {
 /// Build the full constraint in `output_stat`:
 /// - this constraint is expressed on the family of vectors obtained by
 ///   splitting the vector `decomp(z) || decomp(t) || decomp(g) || decomp(h)`,
-/// - the following constraint are aggregated:
+/// - the following constraints are aggregated:
 ///   1. `u_1 = sum(ik, B_ik t_ik) + sum(ijk, C_ijk g_ijk)`
 ///   2. `u_2 = sum(ijk, D_ijk h_ijk)`
 ///   3. `Az = sum(i, c_i t_i)`
