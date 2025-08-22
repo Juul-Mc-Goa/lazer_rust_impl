@@ -288,7 +288,7 @@ impl Proof {
         };
 
         let mut dim = vec![0_usize; r]; // dimension of each vector (before splitting)
-        // vectors will be split into dim.div_ceil(chunks) vectors of lower dimension
+        // vectors will be split into `dim.div_ceil(chunks[i])` vectors of rank `chunks[i]`.
         let mut chunks = vec![0_usize; r];
         let mut norm_square = vec![0_u128; r]; // squared l2 norm
 

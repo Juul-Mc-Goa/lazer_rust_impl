@@ -38,7 +38,7 @@ mod dachshund;
 mod project;
 mod verify;
 
-mod composite;
+// mod composite;
 
 type Seed = <ChaCha8Rng as SeedableRng>::Seed;
 
@@ -173,21 +173,21 @@ pub fn prove(statement: &Statement, witness: &Witness, tail: bool) -> (Statement
     aggregate_constant_coeff(&mut output_stat, &mut proof, &witness, &jl_matrices);
     println!("Aggregated");
 
-    aggregate_input_stat(&mut output_stat, &proof, &statement);
-    amortize(
+    aggregate_input_stat(
         &mut output_stat,
-        &statement,
         &mut output_wit,
         &mut proof,
         &packed_wit,
+        &statement,
     );
+    println!("Amortized");
 
     (output_stat, output_wit, proof)
 }
 
 fn main() {
     let tail = false;
-    let (wit, _, stat) = generate_context(3, 5000, tail, random_seed());
+    let (wit, _, stat) = generate_context(30, 500, tail, random_seed());
 
     println!("Generated random context");
 

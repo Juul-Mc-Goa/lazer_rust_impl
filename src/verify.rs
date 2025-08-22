@@ -261,7 +261,7 @@ pub fn verify(output_stat: &Statement, input_stat: &Statement, witness: &Witness
 
     let inner: &PolyVec = output_stat.commitments.inner();
     let garbage: Option<&PolyVec> = output_stat.commitments.garbage();
-    let challenges: &[PolyRingElem] = &input_stat.challenges;
+    let challenges: &[PolyRingElem] = &output_stat.challenges;
 
     // last witness (no tail): t_part || g_part || h_part
     let z: PolyVec;
