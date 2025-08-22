@@ -329,11 +329,6 @@ pub fn aggregate_input_stat(output_stat: &mut Statement, proof: &Proof, input_st
     let c_z: PolyVec = PolyVec::challenge(com_rank1, &mut rng);
     let c_g: PolyRingElem = PolyRingElem::challenge(&mut rng);
     let c_agg: PolyRingElem = PolyRingElem::challenge(&mut rng);
-    // let c_1: PolyVec = PolyVec::zero(com_rank2);
-    // let c_2: PolyVec = PolyVec::zero(com_rank2);
-    // let c_z: PolyVec = PolyVec::zero(com_rank1);
-    // let c_g: PolyRingElem = PolyRingElem::zero();
-    // let c_agg: PolyRingElem = PolyRingElem::zero();
 
     let CommitKeyData::NoTail {
         matrix_a,
@@ -367,6 +362,23 @@ pub fn aggregate_input_stat(output_stat: &mut Statement, proof: &Proof, input_st
         input_stat,
         &input_stat.challenges,
     );
+
+    // handle h:
+    recursed_vector.add_h_constraint(
+        &input_stat.constraint.linear_part,
+        &com_params,
+        input_stat,
+        &input_stat.challenges,
+    );
+
+    // handle aggregated relation:
+    recursed_vector.add_agg_constraint(
+        &c_agg,
+        &output_stat.constraint.quadratic_part,
+        &com_params,
+        input_stat,
+    );
+    output_stat.constraint.constant += &c_agg * &input_stat.constraint.constant;
 
     // if the quadratic part in `input_stat` is non-empty:
     if !input_stat.constraint.quadratic_part.0.is_empty() {
@@ -420,23 +432,6 @@ pub fn aggregate_input_stat(output_stat: &mut Statement, proof: &Proof, input_st
             }
         }
     }
-
-    // handle h:
-    recursed_vector.add_h_constraint(
-        &input_stat.constraint.linear_part,
-        &com_params,
-        input_stat,
-        &input_stat.challenges,
-    );
-
-    // handle aggregated relation:
-    recursed_vector.add_agg_constraint(
-        &c_agg,
-        &output_stat.constraint.quadratic_part,
-        &com_params,
-        input_stat,
-    );
-    output_stat.constraint.constant += &c_agg * &input_stat.constraint.constant;
 
     // copy recursed vector to linear part of the output constraint
     output_stat.constraint.linear_part = recursed_vector.to_lin_constraint(proof);

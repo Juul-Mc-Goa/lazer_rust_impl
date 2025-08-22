@@ -16,6 +16,7 @@ use sha3::{
     digest::{ExtendableOutput, Update, XofReader},
 };
 
+/// Amortize when `proof.tail` is true.
 pub fn amortize_tail(
     output_stat: &mut Statement,
     output_wit: &mut Witness,
@@ -33,14 +34,6 @@ pub fn amortize_tail(
     let s = &tmp_wit.vectors;
     let challenges = &mut output_stat.challenges;
 
-    let make_rng_challenge = |buf: &[u8]| -> PolyRingElem {
-        let mut seed = [0_u8; 32];
-        seed.copy_from_slice(&buf[..32]);
-        let mut rng = ChaCha8Rng::from_seed(seed);
-
-        PolyRingElem::challenge(&mut rng)
-    };
-
     // compute < phi_0, s_0 >
     let mut s_acc = s[0].clone();
     let mut phi_acc = PolyVec(phi.0[..dim].to_vec());
@@ -53,8 +46,11 @@ pub fn amortize_tail(
     let mut reader = hasher.finalize_xof();
     reader.read(&mut hashbuf[..32]);
 
-    challenges.push(make_rng_challenge(&hashbuf));
+    challenges.push(PolyRingElem::challenge_from_seed(&hashbuf[..32]));
 
+    // tail garbage: h_i for i in 0..2r
+    // h_(2i - 1) = sum(j < i, c_j (< phi[i], s_j > + < phi[j], s_i >))
+    // h_(2i) = < phi[i], s_i >
     for i in 1..r {
         // compute h[2i - 1]
         let (start, end) = (dim * i, dim * (i + 1));
@@ -74,7 +70,7 @@ pub fn amortize_tail(
         reader.read(&mut hashbuf);
 
         // generate challenges[i]
-        challenges.push(make_rng_challenge(&hashbuf));
+        challenges.push(PolyRingElem::challenge_from_seed(&hashbuf[..32]));
 
         // update s_acc, phi_acc
         s_acc.add_mul_assign(&challenges[i], &s[i]);
@@ -117,10 +113,10 @@ pub fn amortize_tail(
 /// - `t` is the decomposition in the base `unif_base` of a vector `t_prime`, where
 ///   `t_prime` is the concatenation of all `t_i = A * s_i`
 /// - `g` is the decomposition in the base `quad_base` of a vector `g_prime`, where
-///   `g_prime` has `r(r+1) / 2` coordinates `g_ij = < s_i, s_j >` (where `i <= j`)
+///   `g_prime` has `r(r+1) / 2` coordinates `g_ij = < s_i, s_j >` (where `j <= i`)
 /// - `h` is the decomposition in the base `unif_base` of a vector `h_prime`, where
 ///   `h_prime` has `r(r+1) / 2` coordinates
-///   `h_ij = (< b_i, s_j > + < b_j, s_i >) / 2` (where `i <= j`)
+///   `h_ij = < b_i, s_j > + < b_j, s_i >` (where `j <= i`)
 pub fn amortize(
     output_stat: &mut Statement,
     input_stat: &Statement,
@@ -164,11 +160,10 @@ pub fn amortize(
     let dim_h = unif_len * r * (r + 1) / 2;
     let mut h: PolyVec = PolyVec(Vec::with_capacity(dim_h));
 
-    let mut sum_h_ii = PolyRingElem::zero();
     for i in 0..r {
-        let lin_i = PolyVec(linear_part.0[(dim * i)..(dim * (i + 1))].to_vec());
+        let lin_i = linear_part.clone_range(dim * i, dim * (i + 1));
         for j in 0..i {
-            let lin_j = PolyVec(linear_part.0[(dim * j)..(dim * (j + 1))].to_vec());
+            let lin_j = linear_part.clone_range(dim * j, dim * (j + 1));
             h.0.push(
                 lin_i.scalar_prod(&packed_wit.vectors[j])
                     + lin_j.scalar_prod(&packed_wit.vectors[i]),
@@ -176,8 +171,6 @@ pub fn amortize(
         }
         // diagonal coef is special
         h.0.push(lin_i.scalar_prod(&packed_wit.vectors[i]));
-        sum_h_ii += &h.0[i * (i + 1) / 2 + i];
-        // println!("h_{{{i}, {i}}} = {:?}", h.0[i * (i + 1) / 2 + i]);
     }
 
     // decompose and concatenate linear garbage
@@ -216,9 +209,7 @@ pub fn amortize(
 
     // generate challenges
     let mut rng = ChaCha8Rng::from_seed(hashbuf);
-    output_stat
-        .challenges
-        .resize_with(r, || PolyRingElem::challenge(&mut rng));
+    output_stat.challenges = (0..r).map(|_| PolyRingElem::challenge(&mut rng)).collect();
 
     // compute z
     let mut z = PolyVec::zero(dim);

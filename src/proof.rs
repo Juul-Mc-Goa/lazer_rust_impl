@@ -457,7 +457,7 @@ impl Proof {
             commitments: Commitments::new(is_tail),
             jl_nonce: 0,
             projection: [0.into(); 256],
-            lifting_poly: Vec::new(),
+            lifting_poly: vec![PolyRingElem::zero(); 256],
             norm_square: total_norm_square,
         }
     }

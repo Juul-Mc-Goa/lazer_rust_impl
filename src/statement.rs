@@ -12,10 +12,11 @@ use crate::{
 pub struct Statement {
     /// total number of vectors  (amortized)
     pub r: usize,
-    /// dimension of amortized vectors
+    /// Dimension of amortized vectors
     pub dim: usize,
-    /// dimension of inner commitments and garbage commitments
+    /// Dimension of inner commitments and garbage commitments
     pub dim_inner: usize,
+    /// Should the proof be `tail` (ie the last one in a composite proof).
     pub tail: bool,
     pub commit_params: CommitParams,
     pub commitments: Commitments,

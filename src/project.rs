@@ -2,11 +2,11 @@
 //! ([`add_apply_jl_matrix`]), and the [`project`] function, which generates a
 //! random JL matrix and applies it to the witness.
 use crate::{
-    constants::JL_MAX_NORM_SQ,
+    constants::{JL_MAX_NORM_SQ, PRIME_BYTES_LEN},
     jl_matrix::JLMatrix,
     linear_algebra::PolyVec,
     proof::Proof,
-    ring::BaseRingElem,
+    ring::{BaseRingElem, PolyRingElem},
     statement::Statement,
     utils::{Aes128Ctr64LE, next_2_power},
     witness::Witness,
@@ -42,6 +42,29 @@ pub fn add_apply_jl_matrix(
             }
         }
     }
+}
+
+pub fn proj_from_bytes(bytes: &[u8; 256 * PRIME_BYTES_LEN]) -> [BaseRingElem; 256] {
+    let mut result = [BaseRingElem::zero(); 256];
+
+    for (i, chunk) in bytes.chunks_exact(PRIME_BYTES_LEN).enumerate() {
+        let mut bytes = [0_u8; PRIME_BYTES_LEN];
+        bytes.copy_from_slice(chunk);
+        result[i] = BaseRingElem::from_le_bytes(&bytes);
+    }
+
+    result
+}
+
+/// Compute the squared norm of a vector of dimension 256 with coordinates in `A_p`.
+pub fn proj_norm_square(projected: &[BaseRingElem; 256]) -> u128 {
+    projected
+        .iter()
+        .map(|coord| {
+            let abs = coord.abs() as u128;
+            abs * abs
+        })
+        .sum::<u128>()
 }
 
 /// "Project" (not really a projection actually but anyway) `wit` into a vector
@@ -105,15 +128,7 @@ pub fn project(statement: &mut Statement, proof: &mut Proof, wit: &Witness) -> V
             .projection
             .iter()
             .any(|coord| coord.abs() >= max_proj_coord);
-        projection_too_big = proof
-            .projection
-            .iter()
-            .map(|coord| {
-                let abs = coord.abs() as u128;
-                abs * abs
-            })
-            .sum::<u128>()
-            > norm_square;
+        projection_too_big = proj_norm_square(&proof.projection) > norm_square;
     }
 
     // initialise hasher: send hashbuf[..16] + proof.projection as input

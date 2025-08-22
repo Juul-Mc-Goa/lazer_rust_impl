@@ -137,7 +137,6 @@ impl Constraint {
         let mut all_constants: Vec<PolyRingElem> = vec![PolyRingElem::zero(); 256];
 
         for (i, jl_matrix) in jl_matrices.iter().enumerate() {
-            println!("jl matrix {i}");
             let mut rows = jl_matrix.as_polyvecs_inverted();
 
             for j in 0..256 {
@@ -170,9 +169,8 @@ pub fn aggregate_proj_constraints(
     let mut constant: PolyRingElem = PolyRingElem::zero();
 
     for (challenge, constraint) in challenges.iter().zip(constraints.iter()) {
-        let poly_challenge: PolyRingElem = (*challenge).into();
         // update linear_part
-        linear_part.add_mul_assign(&poly_challenge, &constraint.linear_part);
+        linear_part.add_scale_assign(&challenge, &constraint.linear_part);
         // update constant
         constant += challenge * &constraint.constant;
     }
@@ -189,11 +187,11 @@ pub fn unpack_challenges(challenges: &[u8]) -> [BaseRingElem; 256] {
     let mut alpha = [BaseRingElem::zero(); 256];
 
     let build_base_elem = |limbs: &[u8]| -> BaseRingElem {
-        let mut shift = 1 << 8_u64;
+        let mut shift: u64 = 1;
         let mut result = limbs[0] as u64;
         for i in 1..PRIME_BYTES_LEN {
             result += shift * limbs[i] as u64;
-            shift *= 256;
+            shift <<= 8;
         }
 
         result.into()

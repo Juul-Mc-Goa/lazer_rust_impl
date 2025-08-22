@@ -36,8 +36,9 @@ mod amortize;
 mod commit;
 mod dachshund;
 mod project;
-mod recursive_prover;
 mod verify;
+
+mod composite;
 
 type Seed = <ChaCha8Rng as SeedableRng>::Seed;
 
@@ -152,42 +153,45 @@ fn generate_context(r: usize, dim: usize, tail: bool, seed: Seed) -> (Witness, P
     )
 }
 
-fn main() {
-    let (wit, mut proof, stat) = generate_context(10, 30, false, Default::default());
-
-    println!("Generated random context");
-    println!(
-        "  predicted witness norm: {} (ie around 2^{})",
-        proof.norm_square,
-        proof.norm_square.ilog2()
+pub fn prove(statement: &Statement, witness: &Witness, tail: bool) -> (Statement, Witness, Proof) {
+    let mut proof = Proof::new(witness.clone(), 1, tail);
+    let mut output_stat = Statement::new(
+        &proof,
+        &statement.hash,
+        Some(statement.commit_key.seed.clone()),
     );
-    println!("  split dimension: {}", proof.split_dim);
-
-    let mut output_stat = Statement::new(&proof, &stat.hash, None);
     let mut output_wit = Witness::new(&output_stat);
 
-    // commit
-    commit(&mut output_stat, &mut output_wit, &mut proof, &wit);
+    commit(&mut output_stat, &mut output_wit, &mut proof, &witness);
     println!("Committed");
 
-    let packed_wit = proof.pack_witness(&wit);
-    println!("packed witness:");
-    packed_wit.print();
+    let packed_wit = proof.pack_witness(&witness);
 
-    let jl_matrices = project(&mut output_stat, &mut proof, &wit);
+    let jl_matrices = project(&mut output_stat, &mut proof, &witness);
     println!("Projected");
 
-    aggregate_constant_coeff(&mut output_stat, &mut proof, &wit, &jl_matrices);
+    aggregate_constant_coeff(&mut output_stat, &mut proof, &witness, &jl_matrices);
     println!("Aggregated");
 
-    aggregate_input_stat(&mut output_stat, &proof, &stat);
+    aggregate_input_stat(&mut output_stat, &proof, &statement);
     amortize(
         &mut output_stat,
-        &stat,
+        &statement,
         &mut output_wit,
         &mut proof,
         &packed_wit,
     );
+
+    (output_stat, output_wit, proof)
+}
+
+fn main() {
+    let tail = false;
+    let (wit, _, stat) = generate_context(3, 5000, tail, random_seed());
+
+    println!("Generated random context");
+
+    let (output_stat, output_wit, _proof) = prove(&stat, &wit, tail);
 
     println!("\nOutput statement:");
     output_stat.print();

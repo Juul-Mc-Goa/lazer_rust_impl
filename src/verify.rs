@@ -91,8 +91,6 @@ fn check_outer_commits(statement: &Statement, witness: &Witness) -> VerifyResult
         uniform_length: unif_len,
         quadratic_base: _,
         quadratic_length: quad_len,
-        commit_rank_1: _,
-        commit_rank_2: _,
         ..
     } = statement.commit_params;
     let com_params = &statement.commit_params;
@@ -322,37 +320,9 @@ pub fn verify(output_stat: &Statement, input_stat: &Statement, witness: &Witness
 
     check_principle(r, &g, &h, quadratic_part, constant)?;
 
+    // check quadratic relation from output_stat on output_wit ?
+
     Ok(())
-
-    // // aggregated relation
-    // let new_wit = {
-    //     // split z
-    //     let mut vectors: Vec<PolyVec> = witness.vectors[..z_len]
-    //         .into_iter()
-    //         .map(|v| v.clone().into_chunks(output_stat.dim))
-    //         .flatten()
-    //         .collect();
-    //     // split tgh
-    //     vectors.append(&mut witness.vectors[z_len].clone().into_chunks(output_stat.dim));
-
-    //     let r = vectors.len();
-    //     let dim = vec![output_stat.dim; r];
-    //     let norm_square: Vec<u128> = vectors.iter().map(|v| v.norm_square()).collect();
-
-    //     Witness {
-    //         r,
-    //         dim,
-    //         norm_square,
-    //         vectors,
-    //     }
-    // };
-
-    // let result = output_stat.constraint.check(&new_wit);
-    // if result.is_zero() {
-    //     Ok(())
-    // } else {
-    //     Err(VerifyError::PrincipleCheck(result))
-    // }
 }
 
 #[cfg(test)]

@@ -1,6 +1,9 @@
 use std::ops::{Add, AddAssign, Mul, MulAssign};
 
-use crate::ring::{BaseRingElem, PolyRingElem};
+use crate::{
+    constants::PRIME_BYTES_LEN,
+    ring::{BaseRingElem, PolyRingElem},
+};
 
 use rand_chacha::ChaCha8Rng;
 use sha3::{
@@ -32,8 +35,13 @@ impl PolyVec {
     }
 
     /// Compute the sum of each squared coefficients (in `A_q`)
+    pub fn norm_square_raw(raw: &[PolyRingElem]) -> u128 {
+        raw.iter().map(|r| r.norm_square()).sum()
+    }
+
+    /// Compute the sum of each squared coefficients (in `A_q`)
     pub fn norm_square(&self) -> u128 {
-        self.0.iter().map(|r| r.norm_square()).sum()
+        PolyVec::norm_square_raw(&self.0)
     }
 
     /// Check if this `PolyVec` is the zero vector.
@@ -97,6 +105,17 @@ impl PolyVec {
         result
     }
 
+    pub fn clone_range(&self, start: usize, end: usize) -> Self {
+        if end > self.0.len() {
+            let mut vec = self.0[start..].to_vec();
+            vec.resize(end - start, PolyRingElem::zero());
+
+            Self(vec)
+        } else {
+            Self(self.0[start..end].to_vec())
+        }
+    }
+
     /// Concatenate two `PolyVec`s: `self <- self || other`.
     pub fn concat(&mut self, other: &mut PolyVec) {
         self.0.append(&mut other.0);
@@ -158,29 +177,23 @@ impl PolyVec {
         PolyVec::iter_bytes_raw(&self.0)
     }
 
-    pub fn hash_raw(raw_vec: &[PolyRingElem]) -> String {
+    pub fn hash_raw(output: &mut [u8], raw_vec: &[PolyRingElem]) {
         let mut hasher = Shake128::default();
         hasher.update(&PolyVec::iter_bytes_raw(raw_vec).collect::<Vec<_>>());
         let mut reader = hasher.finalize_xof();
-        let mut hashbuf = [0_u8; 32];
-        reader.read(&mut hashbuf);
-
-        hex::encode(hashbuf)
+        reader.read(output);
     }
-    pub fn hash(&self) -> String {
-        PolyVec::hash_raw(&self.0)
+    pub fn hash(&self, output: &mut [u8]) {
+        PolyVec::hash_raw(output, &self.0)
     }
 
-    pub fn hash_many(splice: &[PolyVec]) -> String {
+    pub fn hash_many(output: &mut [u8], splice: &[PolyVec]) {
         let mut hasher = Shake128::default();
         for polyvec in splice {
             hasher.update(&polyvec.iter_bytes().collect::<Vec<_>>());
         }
         let mut reader = hasher.finalize_xof();
-        let mut hashbuf = [0_u8; 32];
-        reader.read(&mut hashbuf);
-
-        hex::encode(hashbuf)
+        reader.read(output);
     }
 
     /// Generate an uniformly random `PolyVec` from a given RNG.
@@ -211,6 +224,13 @@ impl PolyVec {
 
     pub fn neg(&mut self) {
         self.0.iter_mut().for_each(|poly| poly.neg());
+    }
+
+    /// Update `self`: `self <- self + coef * other`.
+    pub fn add_scale_assign(&mut self, coef: &BaseRingElem, other: &Self) {
+        for (coef_self, coef_other) in self.0.iter_mut().zip(other.0.iter()) {
+            *coef_self += coef * coef_other;
+        }
     }
 
     /// Update `self`: `self <- self + coef * other`.
@@ -369,6 +389,25 @@ impl SparsePolyMatrix {
         Self(Vec::new())
     }
 
+    pub fn push(&mut self, i: usize, j: usize, coef: PolyRingElem) {
+        // we assume the array of coefs is sorted
+        let entry_idx = self
+            .0
+            .partition_point(|(k, l, _)| (*k < i) || (*k == i && *l < j));
+
+        self.0.insert(entry_idx, (i, j, coef));
+    }
+
+    pub fn apply(&self, vector: &PolyVec) -> PolyVec {
+        let mut result: PolyVec = PolyVec::zero(vector.0.len());
+
+        self.0.iter().for_each(|(i, j, coef)| {
+            result.0[*i] += coef * &vector.0[*j];
+        });
+
+        result
+    }
+
     pub fn apply_to_garbage(&self, vector: &PolyVec) -> PolyRingElem {
         let mut result = PolyRingElem::zero();
 
@@ -378,6 +417,22 @@ impl SparsePolyMatrix {
         });
 
         result
+    }
+
+    pub fn add_mul_assign(&mut self, coef: &PolyRingElem) {
+        *self = &*self * &(PolyRingElem::one() + coef);
+    }
+}
+
+impl Mul<&PolyRingElem> for &SparsePolyMatrix {
+    type Output = SparsePolyMatrix;
+    fn mul(self, other: &PolyRingElem) -> Self::Output {
+        SparsePolyMatrix(
+            self.0
+                .iter()
+                .map(|(i, j, coef)| (*i, *j, other * coef))
+                .collect::<Vec<_>>(),
+        )
     }
 }
 

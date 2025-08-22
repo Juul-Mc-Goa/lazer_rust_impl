@@ -1,9 +1,16 @@
 use rand::Rng;
+use rand::SeedableRng;
 use rand::distr::{Bernoulli, Distribution};
 use rand::seq::SliceRandom;
 use rand_chacha::ChaCha8Rng;
+use sha3::{
+    Shake128,
+    digest::{ExtendableOutput, Update, XofReader},
+};
 
-use crate::constants::{DEGREE, ONE_HALF_MOD_PRIME, PRIME, PRIME_BYTES_LEN, TAU1, TAU2};
+use crate::constants::{
+    DEGREE, LOG_PRIME, ONE_HALF_MOD_PRIME, PRIME, PRIME_BYTES_LEN, PRIME_OFFSET, TAU1, TAU2,
+};
 use std::fmt::Debug;
 use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
@@ -106,8 +113,19 @@ impl BaseRingElem {
     /// Convert a `BaseRingElem` into a `Vec<u8>` (least-endian)
     /// of size `PRIME_BYTES_LEN`.
     pub fn to_le_bytes(&self) -> Vec<u8> {
-        let start_idx: usize = 8 - PRIME_BYTES_LEN;
-        self.element.to_le_bytes()[start_idx..].to_vec()
+        self.element.to_le_bytes()[..PRIME_BYTES_LEN].to_vec()
+    }
+
+    pub fn from_le_bytes(bytes: &[u8; PRIME_BYTES_LEN]) -> Self {
+        let mut sum: u64 = 0;
+        for i in 0..PRIME_BYTES_LEN {
+            sum += (bytes[i] as u64) << (8 * i);
+        }
+
+        let big_part = sum / PRIME;
+        let small_part = sum - big_part * PRIME;
+
+        (small_part + PRIME_OFFSET * big_part).into()
     }
 
     /// Divide by `2` modulo `p`.
@@ -200,11 +218,29 @@ impl PolyRingElem {
     pub fn to_le_bytes(&self) -> Vec<u8> {
         let mut result: Vec<u8> = Vec::new();
 
-        for poly in &self.element {
-            result.append(&mut poly.to_le_bytes());
+        for coef in &self.element {
+            result.append(&mut coef.to_le_bytes());
         }
 
         result
+    }
+
+    pub fn hash(&self, output: &mut [u8]) {
+        let mut hasher = Shake128::default();
+        hasher.update(&self.to_le_bytes());
+
+        let mut reader = hasher.finalize_xof();
+        reader.read(output);
+    }
+
+    pub fn hash_many(input: &[PolyRingElem], output: &mut [u8]) {
+        let mut hasher = Shake128::default();
+        input
+            .iter()
+            .for_each(|poly| hasher.update(&poly.to_le_bytes()));
+
+        let mut reader = hasher.finalize_xof();
+        reader.read(output);
     }
 
     /// Generate an uniformly random polynomial from a given RNG.
@@ -246,6 +282,14 @@ impl PolyRingElem {
         element.shuffle(rng);
 
         Self { element }
+    }
+
+    /// Takes a slice of 32 `u8` to generate a RNG, then call [`PolyRingElem::Challenge`].
+    pub fn challenge_from_seed(seed: &[u8]) -> Self {
+        let mut owned_seed = [0u8; 32];
+        owned_seed.copy_from_slice(seed);
+
+        Self::challenge(&mut ChaCha8Rng::from_seed(owned_seed))
     }
 
     /// Decompose the polynomial in the base `2^base`, returns a list of `len` polynomials.
@@ -304,9 +348,12 @@ where
     type Output = BaseRingElem;
     fn add(self, other: T) -> BaseRingElem {
         let other: &BaseRingElem = other.as_ref();
+        let sum = self.element + other.element;
+        let small_part = sum & ((1 << LOG_PRIME) - 1);
+        let big_part = (sum >> LOG_PRIME) * PRIME_OFFSET;
 
         BaseRingElem {
-            element: (self.element + other.element) % PRIME,
+            element: big_part + small_part,
         }
     }
 }
@@ -519,10 +566,10 @@ where
 {
     type Output = BaseRingElem;
     fn mul(self, other: T) -> BaseRingElem {
-        let other_: &BaseRingElem = other.as_ref();
+        let other_ref: &BaseRingElem = other.as_ref();
 
         // the product of two u64 should be seen as a u128
-        let result = (self.element as u128) * (other_.element as u128);
+        let result = (self.element as u128) * (other_ref.element as u128);
         BaseRingElem {
             element: (result % (PRIME as u128)) as u64,
         }

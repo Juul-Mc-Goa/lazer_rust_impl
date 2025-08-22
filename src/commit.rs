@@ -212,7 +212,7 @@ impl CommitKey {
 pub enum Commitments {
     Tail {
         inner: PolyVec,
-        garbage: PolyVec,
+        garbage: PolyVec, // size: 2r
     },
     NoTail {
         inner: PolyVec,
