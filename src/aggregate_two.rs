@@ -8,18 +8,20 @@ use sha3::{
 };
 
 use crate::{
+    amortize::amortize_tail,
     commit::{CommitKey, CommitKeyData, CommitParams, Commitments},
     linear_algebra::{PolyMatrix, PolyVec, SparsePolyMatrix},
     proof::Proof,
     ring::{BaseRingElem, PolyRingElem},
     statement::Statement,
     utils::add_apply_matrices_garbage,
+    verify::{check_h_constraint, check_principle},
     witness::Witness,
 };
 
 /// A structure used to a recursed witness `decomp(z) || decomp(t) || decomp(g)
 /// || decomp(h)` or (dually) a linear constraint on such a witness.
-struct RecursedVector {
+pub struct RecursedVector {
     /// Decomposition of `z`: `z_len` PolyVecs of size `dim`.
     z_part: Vec<PolyVec>,
     /// Decomposition of each `t_i`: ` unif_len * r` PolyVecs of size `com_rank_1`.
@@ -33,7 +35,7 @@ struct RecursedVector {
 #[allow(dead_code)]
 impl RecursedVector {
     /// Initialize fields with `PolyVec::zero()`.
-    fn new(input_stat: &Statement) -> Self {
+    pub fn new(input_stat: &Statement) -> Self {
         let com_params = &input_stat.commit_params;
         let z_len = input_stat.commit_params.z_length;
         let unif_len = input_stat.commit_params.uniform_length;
@@ -84,7 +86,7 @@ impl RecursedVector {
     /// `u_1 = sum(ik, B_ik t_ik) + sum(ijk, C_ijk g_ijk)`.
     ///
     /// The constant part (`< c_1, u1 >`) has to be built elsewhere.
-    fn add_u1_constraint(
+    pub fn add_u1_constraint(
         &mut self,
         c_1: &PolyVec,
         matrices_b: &[Vec<PolyMatrix>],
@@ -113,7 +115,7 @@ impl RecursedVector {
     /// Build linear part of the constraint: `u_2 = sum(ijk, D_ijk h_ijk)`.
     ///
     /// The constant part (`< c_2, u2 >`) has to be built elsewhere.
-    fn add_u2_constraint(
+    pub fn add_u2_constraint(
         &mut self,
         c_2: &PolyVec,
         matrices_d: &[Vec<PolyMatrix>],
@@ -131,7 +133,7 @@ impl RecursedVector {
     }
 
     /// Build constraint: `Az = sum(i, c_i t_i)`.
-    fn add_inner_constraint(
+    pub fn add_inner_constraint(
         &mut self,
         c_z: &PolyVec,
         matrix_a: &PolyMatrix,
@@ -168,7 +170,7 @@ impl RecursedVector {
     /// `< z, z > = sum(ijk, ((2 ^ quad_base) ^ k) c_i c_j g_ijk)`.
     ///
     /// The quadratic part (`< z, z, >`) has to be built elsewhere.
-    fn add_g_constraint(
+    pub fn add_g_constraint(
         &mut self,
         c_g: &PolyRingElem,
         com_params: &CommitParams,
@@ -193,7 +195,7 @@ impl RecursedVector {
 
     /// Build constraint:
     /// `< sum(i, c_i b_i), z > = sum(ij, c_i c_j h_ij)`.
-    fn add_h_constraint(
+    pub fn add_h_constraint(
         &mut self,
         linear_part: &PolyVec,
         com_params: &CommitParams,
@@ -241,7 +243,7 @@ impl RecursedVector {
     /// constant = 0`.
     ///
     /// The `constant` part has to be built elsewhere.
-    fn add_agg_constraint(
+    pub fn add_agg_constraint(
         &mut self,
         c_agg: &PolyRingElem,
         quadratic_part: &SparsePolyMatrix,
@@ -276,6 +278,7 @@ impl RecursedVector {
 
 pub fn build_z_h(
     output_stat: &mut Statement,
+    proof: &mut Proof,
     input_stat: &Statement,
     packed_wit: &Witness,
 ) -> (Vec<PolyVec>, PolyVec) {
@@ -359,6 +362,16 @@ pub fn build_z_h(
     hasher.update(&u2.iter_bytes().collect::<Vec<_>>());
     let mut reader = hasher.finalize_xof();
 
+    let Commitments::NoTail {
+        inner: _,
+        u1: _,
+        u2: proof_u2,
+    } = &mut proof.commitments
+    else {
+        panic!("agg_amortize: proof is Tail");
+    };
+    *proof_u2 = u2.clone();
+
     // update hash
     let mut hashbuf = [0_u8; 32];
     reader.read(&mut hashbuf);
@@ -379,7 +392,7 @@ pub fn build_z_h(
 ///   5. `sum(i, c_i < lin_part[i], z >) = sum(ij, h_ij c_i c_j)`
 ///   6. `sum(ij, a_ij g_ij) + sum(i, h_ii) - b = 0`
 #[allow(dead_code)]
-pub fn aggregate_input_stat(
+pub fn amortize_aggregate(
     output_stat: &mut Statement,
     output_wit: &mut Witness,
     proof: &mut Proof,
@@ -421,9 +434,14 @@ pub fn aggregate_input_stat(
     //
     // extra constraint n°2 has trivial challenge equal to 1
 
+    if proof.tail {
+        amortize_tail(output_stat, input_stat, output_wit, proof, packed_wit);
+        return;
+    }
+
     // new_witness = (z_0, ... z_{f - 1}, t || g || h)
     // build z part
-    let (mut new_wit, mut h) = build_z_h(output_stat, input_stat, packed_wit);
+    let (mut new_wit, mut h) = build_z_h(output_stat, proof, input_stat, packed_wit);
 
     // build new_witness: t || g || h
     // t || g is stored in output_wit[0] (computed in `commit()`)
@@ -454,6 +472,8 @@ pub fn aggregate_input_stat(
         *squared_norm_bound += output_wit.norm_square[i];
     }
 
+    output_wit.r = if proof.tail { z_len } else { z_len + 1 };
+
     proof.norm_square = *squared_norm_bound;
 
     let c_1: PolyVec = PolyVec::challenge(com_rank_2, &mut rng);
@@ -472,22 +492,22 @@ pub fn aggregate_input_stat(
         panic!("aggregate 2: commitment key is CommitKeyData::Tail");
     };
 
-    let mut recursed_vector = RecursedVector::new(input_stat);
+    let mut new_linear_part = RecursedVector::new(input_stat);
 
     let Commitments::NoTail { inner: _, u1, u2 } = &input_stat.commitments else {
         panic!("aggregate 2: commitments in input statement is Commitments::Tail");
     };
 
     // handle u1:
-    recursed_vector.add_u1_constraint(&c_1, matrices_b, matrices_c, &com_params, input_stat);
+    new_linear_part.add_u1_constraint(&c_1, matrices_b, matrices_c, &com_params, input_stat);
     output_stat.constraint.constant = -c_1.scalar_prod(u1);
 
     // handle u2:
-    recursed_vector.add_u2_constraint(&c_2, matrices_d, &com_params, input_stat);
+    new_linear_part.add_u2_constraint(&c_2, matrices_d, &com_params, input_stat);
     output_stat.constraint.constant -= c_2.scalar_prod(u2);
 
     // handle z:
-    recursed_vector.add_inner_constraint(
+    new_linear_part.add_inner_constraint(
         &c_z,
         matrix_a,
         &com_params,
@@ -496,7 +516,7 @@ pub fn aggregate_input_stat(
     );
 
     // handle h:
-    recursed_vector.add_h_constraint(
+    new_linear_part.add_h_constraint(
         &input_stat.constraint.linear_part,
         &com_params,
         input_stat,
@@ -504,7 +524,7 @@ pub fn aggregate_input_stat(
     );
 
     // handle aggregated relation:
-    recursed_vector.add_agg_constraint(
+    new_linear_part.add_agg_constraint(
         &c_agg,
         &output_stat.constraint.quadratic_part,
         &com_params,
@@ -515,7 +535,7 @@ pub fn aggregate_input_stat(
     // if the quadratic part in `input_stat` is non-empty:
     if !input_stat.constraint.quadratic_part.0.is_empty() {
         // handle g:
-        recursed_vector.add_g_constraint(&c_g, &com_params, input_stat, &input_stat.challenges);
+        new_linear_part.add_g_constraint(&c_g, &com_params, input_stat, &input_stat.challenges);
 
         // handle quadratic part:
         //   - z = sum(
@@ -565,6 +585,6 @@ pub fn aggregate_input_stat(
         }
     }
 
-    // copy recursed vector to linear part of the output constraint
-    output_stat.constraint.linear_part = recursed_vector.to_lin_constraint(proof);
+    // copy new linear part to output constraint
+    output_stat.constraint.linear_part = new_linear_part.to_lin_constraint(proof);
 }

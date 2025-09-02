@@ -4,9 +4,8 @@
 use crate::{
     constants::{JL_MAX_NORM_SQ, PRIME_BYTES_LEN},
     jl_matrix::JLMatrix,
-    linear_algebra::PolyVec,
     proof::Proof,
-    ring::{BaseRingElem, PolyRingElem},
+    ring::BaseRingElem,
     statement::Statement,
     utils::{Aes128Ctr64LE, next_2_power},
     witness::Witness,
@@ -17,44 +16,17 @@ use sha3::{
     digest::{ExtendableOutput, Update, XofReader},
 };
 
-/// Apply `jl_matrix` to `in_vec`, add the result to `out_vec`.
-#[allow(dead_code)]
-pub fn add_apply_jl_matrix(
-    out_vec: &mut [BaseRingElem; 256],
-    in_vec: &PolyVec,
-    jl_matrix: &Vec<u8>,
-) {
-    let mut jl_bit_idx = 0;
+// pub fn proj_from_bytes(bytes: &[u8; 256 * PRIME_BYTES_LEN]) -> [BaseRingElem; 256] {
+//     let mut result = [BaseRingElem::zero(); 256];
 
-    for v in &in_vec.0 {
-        for coord in 0..256 {
-            for coef in &v.element {
-                let byte_idx = jl_bit_idx >> 3;
-                let mask = 1 << (jl_bit_idx & 7);
+//     for (i, chunk) in bytes.chunks_exact(PRIME_BYTES_LEN).enumerate() {
+//         let mut bytes = [0_u8; PRIME_BYTES_LEN];
+//         bytes.copy_from_slice(chunk);
+//         result[i] = BaseRingElem::from_le_bytes(&bytes);
+//     }
 
-                if (jl_matrix[byte_idx] & mask) != 0 {
-                    out_vec[coord] -= coef;
-                } else {
-                    out_vec[coord] += coef;
-                }
-
-                jl_bit_idx += 1;
-            }
-        }
-    }
-}
-
-pub fn proj_from_bytes(bytes: &[u8; 256 * PRIME_BYTES_LEN]) -> [BaseRingElem; 256] {
-    let mut result = [BaseRingElem::zero(); 256];
-
-    for (i, chunk) in bytes.chunks_exact(PRIME_BYTES_LEN).enumerate() {
-        let mut bytes = [0_u8; PRIME_BYTES_LEN];
-        bytes.copy_from_slice(chunk);
-        result[i] = BaseRingElem::from_le_bytes(&bytes);
-    }
-
-    result
-}
+//     result
+// }
 
 /// Compute the squared norm of a vector of dimension 256 with coordinates in `A_p`.
 pub fn proj_norm_square(projected: &[BaseRingElem; 256]) -> u128 {
@@ -139,9 +111,9 @@ pub fn project(statement: &mut Statement, proof: &mut Proof, wit: &Witness) -> V
         &proof
             .projection
             .iter()
-            .map(|e| e.element.to_le_bytes())
-            .collect::<Vec<_>>()
-            .as_flattened(),
+            .map(|e| e.to_le_bytes())
+            .flatten()
+            .collect::<Vec<_>>(),
     );
 
     let mut reader = hasher.finalize_xof();

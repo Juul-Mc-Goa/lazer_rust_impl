@@ -73,7 +73,7 @@ pub fn generate_lifting_poly(
     witness: &Witness,
 ) {
     // compute result (over R_p) of linear map
-    constraint.constant = constraint
+    constraint.constant = -constraint
         .linear_part
         .scalar_prod(&PolyVec::join(&witness.vectors));
 

@@ -19,6 +19,7 @@ use sha3::{
 /// Amortize when `proof.tail` is true.
 pub fn amortize_tail(
     output_stat: &mut Statement,
+    input_stat: &Statement,
     output_wit: &mut Witness,
     proof: &mut Proof,
     tmp_wit: &Witness,
@@ -30,13 +31,13 @@ pub fn amortize_tail(
     let mut h: Vec<PolyRingElem> = Vec::with_capacity(2 * r);
     let mut hashbuf = [0_u8; 16 + 2 * DEGREE as usize * PRIME_BYTES_LEN];
 
-    let phi = &mut output_stat.constraint.linear_part;
+    let linear_part = &input_stat.constraint.linear_part;
     let s = &tmp_wit.vectors;
     let challenges = &mut output_stat.challenges;
 
-    // compute < phi_0, s_0 >
+    // compute h_0 = < phi_0, s_0 >
     let mut s_acc = s[0].clone();
-    let mut phi_acc = PolyVec(phi.0[..dim].to_vec());
+    let mut phi_acc = PolyVec(linear_part.0[..dim].to_vec());
     h.push(phi_acc.scalar_prod(&s_acc));
 
     // shake128(output_stat.hash || h[0])
@@ -47,6 +48,8 @@ pub fn amortize_tail(
     reader.read(&mut hashbuf[..32]);
 
     challenges.push(PolyRingElem::challenge_from_seed(&hashbuf[..32]));
+    s_acc *= &challenges[0];
+    phi_acc *= &challenges[0];
 
     // tail garbage: h_i for i in 0..2r
     // h_(2i - 1) = sum(j < i, c_j (< phi[i], s_j > + < phi[j], s_i >))
@@ -54,7 +57,7 @@ pub fn amortize_tail(
     for i in 1..r {
         // compute h[2i - 1]
         let (start, end) = (dim * i, dim * (i + 1));
-        let phi_i = PolyVec(phi.0[start..end].to_vec());
+        let phi_i = PolyVec(linear_part.0[start..end].to_vec());
         h.push(phi_i.scalar_prod(&s_acc));
         h[2 * i - 1] += phi_acc.scalar_prod(&s[i]);
 
@@ -82,18 +85,32 @@ pub fn amortize_tail(
         ref mut garbage,
     } = output_stat.commitments
     else {
-        panic!("amortize tail: output_stat.commitments is tail");
+        panic!("amortize tail: output_stat.commitments is NoTail");
     };
 
     garbage.0.append(&mut h);
 
+    let Commitments::Tail {
+        inner: _,
+        garbage: proof_garbage,
+    } = &mut proof.commitments
+    else {
+        panic!("amortize_tail(): proof.commitments should be Tail.");
+    };
+
+    *proof_garbage = garbage.clone();
+
     // store new hash
     output_stat.hash.copy_from_slice(&hashbuf[..16]);
 
-    // compute z
-    //         output_wit.norm_square
-    //         output_stat.squared_norm_bound
+    // compute:
+    //   z
+    //   output_wit.norm_square
+    //   output_stat.squared_norm_bound
     let mut new_wit: Vec<PolyVec> = Vec::new();
+
+    output_wit.norm_square.resize(z_len + 1, 0_u128);
+
     for (i, z_small) in s_acc.decomp(z_base, z_len).into_iter().enumerate() {
         output_wit.norm_square[i] = z_small.norm_square();
         output_stat.squared_norm_bound += output_wit.norm_square[i];
@@ -102,9 +119,13 @@ pub fn amortize_tail(
 
     new_wit.append(&mut output_wit.vectors);
     output_wit.vectors = new_wit;
-
+    output_wit.dim = output_wit.vectors.iter().map(|w| w.0.len()).collect();
     proof.norm_square = output_stat.squared_norm_bound;
-    phi.0.resize(dim * r, PolyRingElem::zero());
+    output_stat
+        .constraint
+        .linear_part
+        .0
+        .resize(dim * r, PolyRingElem::zero());
 }
 
 /// Transform a witness `(s_1, ..., ,s_r)` into a new witness `(z, t, g, h)`.
@@ -125,7 +146,7 @@ pub fn amortize(
     packed_wit: &Witness,
 ) {
     if proof.tail {
-        amortize_tail(output_stat, output_wit, proof, packed_wit);
+        amortize_tail(output_stat, input_stat, output_wit, proof, packed_wit);
     }
 
     let (r, dim, squared_norm_bound, hash, commit_key) = (

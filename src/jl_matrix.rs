@@ -1,19 +1,9 @@
-use crate::constants::{DEGREE, PRIME, PRIME_BYTES_LEN, U128_LEN};
-use crate::constraint::Constraint;
-use crate::constraint::{aggregate_proj_constraints, unpack_challenges};
-use crate::linear_algebra::{PolyVec, SparsePolyMatrix};
-use crate::proof::Proof;
+use crate::constants::{DEGREE, PRIME};
+use crate::linear_algebra::PolyVec;
 use crate::ring::{BaseRingElem, PolyRingElem};
-use crate::statement::Statement;
 use crate::utils::Aes128Ctr64LE;
 
 use aes::cipher::StreamCipher;
-use rand::SeedableRng;
-use rand_chacha::ChaCha8Rng;
-use sha3::{
-    Shake128,
-    digest::{ExtendableOutput, Update, XofReader},
-};
 
 #[allow(dead_code)]
 pub struct JLMatrix {

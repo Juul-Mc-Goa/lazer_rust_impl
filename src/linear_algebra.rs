@@ -14,12 +14,13 @@ use sha3::{
 #[derive(Clone, Debug)]
 pub struct PolyVec(pub Vec<PolyRingElem>);
 
+#[derive(Clone, Debug)]
 pub struct PolyMatrix(pub Vec<Vec<PolyRingElem>>);
 
 /// Sparse matrix with polynomial coefficients: a vector of
 /// `(row_index, column_index, coef)`.
 #[allow(dead_code)]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SparsePolyMatrix(pub Vec<(usize, usize, PolyRingElem)>);
 
 #[allow(dead_code)]

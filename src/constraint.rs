@@ -24,7 +24,7 @@ use crate::{
 /// ```
 /// where `s' = s_1 || ... || s_r`.
 #[allow(dead_code)]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Constraint {
     pub degree: usize,
     pub quadratic_part: SparsePolyMatrix,

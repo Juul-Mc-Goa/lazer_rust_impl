@@ -1,7 +1,7 @@
 use crate::{linear_algebra::PolyVec, statement::Statement};
 
 #[allow(dead_code)]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Witness {
     /// Number of vectors (ie length of `self.vectors`).
     pub r: usize,
@@ -28,7 +28,7 @@ impl Witness {
 
     /// Initialize a witness for a given `Statement`.
     pub fn new(statement: &Statement) -> Self {
-        let mut r = statement.r;
+        let mut r = statement.commit_params.z_length;
         let mut dim = vec![statement.dim; statement.commit_params.z_length];
 
         if !statement.tail {

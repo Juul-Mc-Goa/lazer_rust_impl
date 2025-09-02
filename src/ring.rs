@@ -1,3 +1,4 @@
+use num_modular::{ModularInteger, MontgomeryInt};
 use rand::Rng;
 use rand::SeedableRng;
 use rand::distr::{Bernoulli, Distribution};
@@ -15,13 +16,13 @@ use std::fmt::Debug;
 use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
 /// An element of `Z/pZ`, where `p = PRIME`.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct BaseRingElem {
-    pub element: u64,
+    pub element: MontgomeryInt<u64>,
 }
 
 /// An element of `(Z/pZ)[X] / (X^d + 1)`, where `p = PRIME`, and `d = DEGREE`.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq)]
 pub struct PolyRingElem {
     pub element: Vec<BaseRingElem>,
 }
@@ -30,7 +31,7 @@ pub struct PolyRingElem {
 impl From<u64> for BaseRingElem {
     fn from(value: u64) -> Self {
         Self {
-            element: value % PRIME,
+            element: MontgomeryInt::new(value, &PRIME),
         }
     }
 }
@@ -51,10 +52,11 @@ impl AsRef<PolyRingElem> for PolyRingElem {
 
 impl Debug for BaseRingElem {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let small = if 2 * self.element < PRIME {
-            self.element as i64
+        let residue = self.element.residue();
+        let small = if 2 * residue < PRIME {
+            residue as i64
         } else {
-            self.element as i64 - PRIME as i64
+            residue as i64 - PRIME as i64
         };
         write!(f, "{small:2}")
     }
@@ -86,46 +88,49 @@ impl From<BaseRingElem> for PolyRingElem {
 impl BaseRingElem {
     /// Generate 0 mod `PRIME`.
     pub fn zero() -> Self {
-        BaseRingElem { element: 0 }
+        BaseRingElem {
+            element: MontgomeryInt::new(0, &PRIME),
+        }
     }
     /// Generate 1 mod `PRIME`.
     pub fn one() -> Self {
-        BaseRingElem { element: 1 }
+        BaseRingElem {
+            element: MontgomeryInt::new(1, &PRIME),
+        }
     }
 
     /// Return the "absolute value of `self`": the minimum of `self.element` and
     /// `PRIME - self.element`.
     pub fn abs(&self) -> u64 {
-        if 2 * self.element < PRIME {
-            self.element
+        let residue = self.element.residue();
+        if 2 * residue < PRIME {
+            residue
         } else {
-            PRIME - self.element
+            PRIME - residue
         }
     }
 
     /// Generate an uniformly random integer from a given RNG.
     pub fn random(rng: &mut ChaCha8Rng) -> Self {
         BaseRingElem {
-            element: rng.random_range(0..PRIME),
+            element: MontgomeryInt::new(rng.random_range(0..PRIME), &PRIME),
         }
     }
 
     /// Convert a `BaseRingElem` into a `Vec<u8>` (least-endian)
     /// of size `PRIME_BYTES_LEN`.
     pub fn to_le_bytes(&self) -> Vec<u8> {
-        self.element.to_le_bytes()[..PRIME_BYTES_LEN].to_vec()
+        self.element.residue().to_le_bytes()[((DEGREE as usize >> 3) - PRIME_BYTES_LEN)..].to_vec()
     }
 
     pub fn from_le_bytes(bytes: &[u8; PRIME_BYTES_LEN]) -> Self {
         let mut sum: u64 = 0;
         for i in 0..PRIME_BYTES_LEN {
-            sum += (bytes[i] as u64) << (8 * i);
+            // least endian: bytes[7] has smallest weight
+            sum += (bytes[PRIME_BYTES_LEN - 1 - i] as u64) << (8 * i);
         }
 
-        let big_part = sum / PRIME;
-        let small_part = sum - big_part * PRIME;
-
-        (small_part + PRIME_OFFSET * big_part).into()
+        sum.into()
     }
 
     /// Divide by `2` modulo `p`.
@@ -164,15 +169,15 @@ impl PolyRingElem {
     }
 
     pub fn is_zero(&self) -> bool {
-        self.element.iter().all(|coef| coef.element == 0)
+        self.element.iter().all(|coef| coef.element.is_zero())
     }
 
-    /// Divide by `2` modulo `p`.
-    pub fn halve(&self) -> Self {
-        Self {
-            element: self.element.iter().map(|c| c.halve()).collect(),
-        }
-    }
+    // /// Divide by `2` modulo `p`.
+    // pub fn halve(&self) -> Self {
+    //     Self {
+    //         element: self.element.iter().map(|c| c.halve()).collect(),
+    //     }
+    // }
 
     pub fn neg(&mut self) {
         self.element.iter_mut().for_each(|c| *c = -*c);
@@ -181,19 +186,26 @@ impl PolyRingElem {
     /// Multiply the polynomial by `X^exp`, in the ring where `X^DEGREE + 1 = 0`.
     pub fn mul_by_x_power(&self, mut exp: u64) -> Self {
         let mut result = Self::zero();
+
+        let sign: BaseRingElem = if ((exp / DEGREE) & 1) == 1 {
+            -BaseRingElem::one()
+        } else {
+            BaseRingElem::one()
+        };
+
         exp %= DEGREE;
 
         let (pos_part, neg_part) = self.element.split_at((DEGREE - exp) as usize);
 
         let mut i = 0_usize;
 
-        for coef in neg_part.iter() {
-            result.element[i] = -*coef;
+        neg_part.iter().for_each(|coef| {
+            result.element[i] = &-sign * coef;
             i += 1;
-        }
+        });
 
         for coef in pos_part.iter() {
-            result.element[i] = *coef;
+            result.element[i] = &sign * coef;
             i += 1;
         }
 
@@ -299,7 +311,7 @@ impl PolyRingElem {
         let mut result: Vec<Vec<BaseRingElem>> = vec![Vec::new(); len];
 
         for i in 0..(DEGREE as usize) {
-            let positive = 2 * self.element[i].element < PRIME;
+            let positive = 2 * self.element[i].element.residue() < PRIME;
             let mut coef = self.element[i].abs();
 
             if positive {
@@ -322,17 +334,44 @@ impl PolyRingElem {
 
     /// Apply the ring automorphism defined by `sigma(X) = X^{-1} = -X^{d-1}` to the polynomial.
     pub fn invert_x(&mut self) {
-        // apply X -> -X
-        let mut rev: Vec<BaseRingElem> = self.element[1..]
-            .iter()
-            .enumerate()
-            .map(|(i, c)| if (i + 1) % 2 == 1 { -*c } else { *c })
-            .collect();
-        // apply X -> X^{d-1}
-        rev.push(self.element[0]);
-        rev.reverse();
+        let deg_usize = DEGREE as usize;
 
-        self.element = rev;
+        let mut new_elem: Vec<BaseRingElem> = Vec::with_capacity(deg_usize);
+        new_elem.push(self.element[0]);
+
+        for i in 1..((deg_usize - 1) / 2) {
+            self.element.swap(i, deg_usize - i);
+            if i & 1 == 1 {
+                self.element[i] = -self.element[i];
+            }
+        }
+        self.element = new_elem;
+    }
+
+    pub fn karatsuba_mul(max_deg: usize, left: &[BaseRingElem], right: &[BaseRingElem]) -> Self {
+        if left.len() == 1 && right.len() == 1 {
+            let mut result = PolyRingElem::zero();
+            result.element[0] = &left[0] * &right[0];
+            return result;
+        }
+        let mid_deg = max_deg.div_ceil(2);
+
+        let (l1, l2) = left.split_at(mid_deg);
+        let sum_l: Vec<BaseRingElem> = l1.iter().zip(l2.iter()).map(|(a, b)| a + b).collect();
+
+        let (r1, r2) = right.split_at(mid_deg);
+        let sum_r: Vec<BaseRingElem> = r1.iter().zip(r2.iter()).map(|(a, b)| a + b).collect();
+
+        let small = Self::karatsuba_mul(mid_deg, l1, r1);
+        let big = Self::karatsuba_mul(max_deg - mid_deg, l2, r2);
+        let mut mid = Self::karatsuba_mul(mid_deg, &sum_l, &sum_r);
+        mid -= &small;
+        mid -= &big;
+
+        let mut result: Self = small + mid.mul_by_x_power(mid_deg as u64);
+        result += big.mul_by_x_power(2 * mid_deg as u64);
+
+        result
     }
 }
 
@@ -348,12 +387,9 @@ where
     type Output = BaseRingElem;
     fn add(self, other: T) -> BaseRingElem {
         let other: &BaseRingElem = other.as_ref();
-        let sum = self.element + other.element;
-        let small_part = sum & ((1 << LOG_PRIME) - 1);
-        let big_part = (sum >> LOG_PRIME) * PRIME_OFFSET;
 
         BaseRingElem {
-            element: big_part + small_part,
+            element: self.element + other.element,
         }
     }
 }
@@ -410,8 +446,7 @@ where
 {
     fn add_assign(&mut self, other: T) {
         let other_: &BaseRingElem = other.as_ref();
-        self.element += other_.element;
-        self.element %= PRIME;
+        self.element = self.element + other_.element;
     }
 }
 
@@ -437,12 +472,8 @@ where
 impl Neg for BaseRingElem {
     type Output = Self;
     fn neg(self) -> Self::Output {
-        if self.element == 0 {
-            self
-        } else {
-            Self {
-                element: PRIME - self.element,
-            }
+        Self {
+            element: -self.element,
         }
     }
 }
@@ -474,12 +505,8 @@ where
     fn sub(self, other: T) -> BaseRingElem {
         let other: &BaseRingElem = other.as_ref();
 
-        if self.element >= other.element {
-            BaseRingElem {
-                element: self.element - other.element,
-            }
-        } else {
-            self + -*other
+        BaseRingElem {
+            element: self.element - other.element,
         }
     }
 }
@@ -536,8 +563,7 @@ where
 {
     fn sub_assign(&mut self, other: T) {
         let other_: &BaseRingElem = other.as_ref();
-        self.element += PRIME - other_.element;
-        self.element %= PRIME;
+        self.element = self.element - other_.element;
     }
 }
 
@@ -568,10 +594,8 @@ where
     fn mul(self, other: T) -> BaseRingElem {
         let other_ref: &BaseRingElem = other.as_ref();
 
-        // the product of two u64 should be seen as a u128
-        let result = (self.element as u128) * (other_ref.element as u128);
         BaseRingElem {
-            element: (result % (PRIME as u128)) as u64,
+            element: self.element * other_ref.element,
         }
     }
 }
@@ -636,6 +660,8 @@ impl Mul<PolyRingElem> for &BaseRingElem {
 /// Polynomial mul assign.
 impl MulAssign<&PolyRingElem> for PolyRingElem {
     fn mul_assign(&mut self, other: &PolyRingElem) {
+        // self.element =
+        //     PolyRingElem::karatsuba_mul(DEGREE as usize, &self.element, &other.element).element;
         let clone = self.clone();
         self.element.fill(0.into());
 
@@ -662,6 +688,7 @@ where
 impl Mul<&PolyRingElem> for &PolyRingElem {
     type Output = PolyRingElem;
     fn mul(self, other: &PolyRingElem) -> Self::Output {
+        // PolyRingElem::karatsuba_mul(DEGREE as usize, &self.element, &other.element)
         let mut result = PolyRingElem::zero();
         let clone = self.clone();
 
@@ -692,6 +719,8 @@ impl Mul<PolyRingElem> for PolyRingElem {
 
 #[cfg(test)]
 mod tests {
+    use crate::random_seed;
+
     use super::*;
 
     #[test]
@@ -699,7 +728,7 @@ mod tests {
         let a: BaseRingElem = 2.into();
         let b: BaseRingElem = 131.into();
 
-        assert_eq!(133, (a + b).element);
+        assert_eq!(133, (a + b).element.residue());
     }
 
     #[test]
@@ -707,13 +736,13 @@ mod tests {
         let a: BaseRingElem = (PRIME - 2).into();
         let b: BaseRingElem = (1 << 10).into();
 
-        assert_eq!(1022, (a + b).element);
+        assert_eq!(1022, (a + b).element.residue());
     }
 
     #[test]
     fn neg_base() {
         let a: BaseRingElem = 153.into();
-        assert_eq!(PRIME - 153, (-a).element);
+        assert_eq!(PRIME - 153, (-a).element.residue());
     }
 
     #[test]
@@ -723,7 +752,7 @@ mod tests {
         let c: BaseRingElem = &a * &b;
 
         // computation done with ipython
-        assert_eq!(769658139281, c.element);
+        assert_eq!(769658139281, c.element.residue());
     }
 
     #[test]
@@ -794,6 +823,48 @@ mod tests {
         ]);
 
         assert_eq!(result, c);
+    }
+
+    #[test]
+    fn karatsuba_mul() {
+        let a = PolyRingElem::from_vec_u64((0..64).collect());
+        let b = PolyRingElem::from_vec_u64(vec![
+            1, 2, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0,
+        ]);
+
+        // let c = a * b;
+        let c = PolyRingElem::karatsuba_mul(64, &a.element, &b.element);
+
+        let (c_1, c_2) = (PRIME - (2 * 63) - (3 * 62), 1 + PRIME - 3 * 63);
+        let result = PolyRingElem::from_vec_u64(vec![
+            c_1, c_2, 4, 10, 16, 22, 28, 34, 40, 46, 52, 58, 64, 70, 76, 82, 88, 94, 100, 106, 112,
+            118, 124, 130, 136, 142, 148, 154, 160, 166, 172, 178, 184, 190, 196, 202, 208, 214,
+            220, 226, 232, 238, 244, 250, 256, 262, 268, 274, 280, 286, 292, 298, 304, 310, 316,
+            322, 328, 334, 340, 346, 352, 358, 364, 370,
+        ]);
+
+        assert_eq!(result, c);
+    }
+
+    #[test]
+    fn two_mul_are_equal() {
+        let seed = random_seed();
+        let mut rng = ChaCha8Rng::from_seed(seed);
+        let iterations: usize = 1 << 16;
+
+        for i in 0..iterations {
+            let left = PolyRingElem::random(&mut rng);
+            let right = PolyRingElem::random(&mut rng);
+
+            println!("{i}");
+
+            assert_eq!(
+                &left * &right,
+                PolyRingElem::karatsuba_mul(DEGREE as usize, &left.element, &right.element)
+            )
+        }
     }
 
     #[test]

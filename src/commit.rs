@@ -39,6 +39,7 @@ pub struct CommitParams {
 }
 
 #[allow(dead_code)]
+#[derive(Clone)]
 pub enum CommitKeyData {
     /// The matrices `A, B, C` used to compute
     /// `u1 = B * decomp(A * z) + C * decomp(quad_garbage)`.
@@ -133,6 +134,7 @@ impl std::fmt::Debug for CommitKeyData {
 }
 
 #[allow(dead_code)]
+#[derive(Clone)]
 pub struct CommitKey {
     /// The matrices used for commiting.
     pub data: CommitKeyData,
