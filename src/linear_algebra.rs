@@ -1,9 +1,6 @@
 use std::ops::{Add, AddAssign, Mul, MulAssign};
 
-use crate::{
-    constants::PRIME_BYTES_LEN,
-    ring::{BaseRingElem, PolyRingElem},
-};
+use crate::ring::{BaseRingElem, PolyRingElem};
 
 use rand_chacha::ChaCha8Rng;
 use sha3::{

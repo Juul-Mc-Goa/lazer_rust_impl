@@ -9,9 +9,7 @@ use sha3::{
     digest::{ExtendableOutput, Update, XofReader},
 };
 
-use crate::constants::{
-    DEGREE, LOG_PRIME, ONE_HALF_MOD_PRIME, PRIME, PRIME_BYTES_LEN, PRIME_OFFSET, TAU1, TAU2,
-};
+use crate::constants::{DEGREE, ONE_HALF_MOD_PRIME, PRIME, PRIME_BYTES_LEN, TAU1, TAU2};
 use std::fmt::Debug;
 use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 

@@ -159,6 +159,7 @@ impl Constraint {
 }
 
 /// Aggregate several constraints acting on the same vector space.
+#[allow(dead_code)]
 pub fn aggregate_proj_constraints(
     r: usize,
     dim: usize,

@@ -138,6 +138,7 @@ pub fn amortize_tail(
 /// - `h` is the decomposition in the base `unif_base` of a vector `h_prime`, where
 ///   `h_prime` has `r(r+1) / 2` coordinates
 ///   `h_ij = < b_i, s_j > + < b_j, s_i >` (where `j <= i`)
+#[allow(dead_code)]
 pub fn amortize(
     output_stat: &mut Statement,
     input_stat: &Statement,

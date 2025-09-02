@@ -15,7 +15,6 @@ use crate::{
     ring::{BaseRingElem, PolyRingElem},
     statement::Statement,
     utils::add_apply_matrices_garbage,
-    verify::{check_h_constraint, check_principle},
     witness::Witness,
 };
 

@@ -2,7 +2,7 @@
 //! ([`add_apply_jl_matrix`]), and the [`project`] function, which generates a
 //! random JL matrix and applies it to the witness.
 use crate::{
-    constants::{JL_MAX_NORM_SQ, PRIME_BYTES_LEN},
+    constants::JL_MAX_NORM_SQ,
     jl_matrix::JLMatrix,
     proof::Proof,
     ring::BaseRingElem,

@@ -8,7 +8,7 @@ use sha3::{
 
 use crate::{
     aggregate_one::collaps_jl_matrices,
-    aggregate_two::{RecursedVector, amortize_aggregate},
+    aggregate_two::RecursedVector,
     commit::{CommitKeyData, Commitments},
     constants::{
         CHALLENGE_NORM, DEGREE, JL_MAX_NORM_SQ, LOG_PRIME, PRIME_BYTES_LEN, SLACK, U128_LEN,
@@ -35,12 +35,6 @@ pub struct Composite {
 
 pub type TempStatement = [Statement; 2];
 pub type TempWitness = [Witness; 2];
-
-fn debug_challenges(pre_str: &str, challenges: &[PolyRingElem]) {
-    let mut hashbuf = [0_u8; 16];
-    PolyRingElem::hash_many(challenges, &mut hashbuf);
-    println!("{pre_str} challenges: {hashbuf:?}");
-}
 
 fn proof_size(proof: &Proof) -> f64 {
     let com_params = proof.commit_params;
@@ -226,41 +220,6 @@ fn reduce_project(
     jl_matrices
 }
 
-pub fn reduce_lift_agg(
-    output_stat: &mut Statement,
-    proof: &Proof,
-    i: usize,
-    constraint: &mut Constraint,
-) {
-    let c0: BaseRingElem = constraint.constant.element[0];
-    let mut b: PolyRingElem = proof.lifting_poly[i].clone();
-    b.element[0] = c0;
-    constraint.constant = b;
-
-    // update hash
-    let mut hasher = Shake128::default();
-
-    hasher.update(&output_stat.hash);
-    hasher.update(&proof.lifting_poly[i].to_le_bytes());
-
-    let mut reader = hasher.finalize_xof();
-    let mut hashbuf = [0_u8; 32];
-    reader.read(&mut hashbuf);
-
-    output_stat.hash.copy_from_slice(&hashbuf[..16]);
-    let alpha = PolyRingElem::challenge_from_seed(&hashbuf);
-
-    if i == 0 {
-        output_stat.constraint.constant = &constraint.constant * &alpha;
-        output_stat.constraint.linear_part = &constraint.linear_part * &alpha;
-        output_stat.constraint.quadratic_part = &constraint.quadratic_part * &alpha;
-    } else {
-        output_stat.constraint.constant += &constraint.constant * &alpha;
-        output_stat.constraint.linear_part += &constraint.linear_part * &alpha;
-        output_stat.constraint.quadratic_part.add_mul_assign(&alpha);
-    }
-}
-
 pub fn reduce_gen_lifting_poly(
     output_stat: &mut Statement,
     proof: &Proof,
@@ -269,7 +228,7 @@ pub fn reduce_gen_lifting_poly(
 ) {
     // compute result (over R_p) of linear map
     let mut constant = constraint.constant.clone();
-    let c0 = constant.element[0];
+    let _c0 = constant.element[0];
     constant = proof.lifting_poly[i].clone();
     constant.element[0] = 0.into();
 
@@ -297,82 +256,6 @@ pub fn reduce_gen_lifting_poly(
     } else {
         output_stat.constraint.linear_part += &constraint.linear_part * &alpha;
         output_stat.constraint.constant += &constraint.constant * &alpha;
-    }
-}
-
-pub fn reduce_build_z_h(output_stat: &mut Statement, proof: &Proof) {
-    let (r, hash, challenges) = (
-        output_stat.r,
-        &mut output_stat.hash,
-        &mut output_stat.challenges,
-    );
-
-    // generate challenges
-    let mut hashbuf = [0_u8; 32];
-    hashbuf[..16].copy_from_slice(&*hash);
-    let mut rng = ChaCha8Rng::from_seed(hashbuf);
-    *challenges = (0..r).map(|_| PolyRingElem::challenge(&mut rng)).collect();
-
-    // copy second commitment from proof to output_stat
-    use Commitments::*;
-    match (&mut output_stat.commitments, &proof.commitments) {
-        (
-            Tail {
-                inner: _,
-                garbage: stat_garbage,
-            },
-            Tail {
-                inner: _,
-                garbage: proof_garbage,
-            },
-        ) => *stat_garbage = proof_garbage.clone(),
-        (
-            NoTail {
-                inner: _,
-                u1: _,
-                u2: stat_u2,
-            },
-            NoTail {
-                inner: _,
-                u1: _,
-                u2: proof_u2,
-            },
-        ) => *stat_u2 = proof_u2.clone(),
-        _ => panic!("reduce_amortize(): incompatible Tail variants (output_stat, proof)"),
-    }
-
-    if proof.tail {
-        output_stat.challenges = vec![PolyRingElem::zero(); r];
-        // garbage is h_i (i in 0..2r)
-        let garbage = proof.commitments.garbage().unwrap();
-
-        // generate challenge[0]
-        let mut seed = [0_u8; 32];
-        garbage.0[0].hash(&mut seed);
-        output_stat.challenges[0] = PolyRingElem::challenge_from_seed(&seed);
-
-        (1..r).for_each(|i| {
-            // generate challenge[i]
-            PolyRingElem::hash_many(&garbage.0[(2 * i - 1)..(2 * i + 1)], &mut seed);
-            output_stat.challenges[i] = PolyRingElem::challenge_from_seed(&seed);
-        });
-    } else {
-        let (_, u2) = output_stat.commitments.outer().unwrap();
-
-        // initialise hasher
-        let mut hasher = Shake128::default();
-        hasher.update(&output_stat.hash);
-        hasher.update(&u2.iter_bytes().collect::<Vec<_>>());
-        let mut reader = hasher.finalize_xof();
-
-        // update hash
-        let mut hashbuf = [0_u8; 32];
-        reader.read(&mut hashbuf);
-        output_stat.hash.copy_from_slice(&hashbuf[..16]);
-
-        // generate challenges
-        let mut rng = ChaCha8Rng::from_seed(hashbuf);
-        output_stat.challenges = (0..r).map(|_| PolyRingElem::challenge(&mut rng)).collect();
     }
 }
 
@@ -511,7 +394,7 @@ pub fn reduce_agg_amortize(output_stat: &mut Statement, proof: &Proof, input_sta
     // copy new linear part to output constraint
     output_stat.constraint.linear_part = new_linear_part.to_lin_constraint(proof);
 }
-pub fn reduce_amortize_tail(output_stat: &mut Statement, proof: &Proof, input_stat: &Statement) {
+pub fn reduce_amortize_tail(output_stat: &mut Statement, proof: &Proof) {
     let r = output_stat.r;
     let com_params = &output_stat.commit_params;
     let (z_base, z_len) = (com_params.z_base, com_params.z_length);
@@ -731,7 +614,7 @@ pub fn reduce_tail(proof: &Proof, input_stat: &Statement) -> Statement {
     }
     println!("(aggregate tail) output_stat hash: {:?}", output_stat.hash);
 
-    reduce_amortize_tail(&mut output_stat, proof, input_stat);
+    reduce_amortize_tail(&mut output_stat, proof);
     println!("(amortize tail) output_stat hash: {:?}", output_stat.hash);
 
     output_stat

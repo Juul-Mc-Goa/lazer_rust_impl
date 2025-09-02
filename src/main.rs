@@ -14,7 +14,6 @@ use crate::{
     proof::Proof,
     ring::PolyRingElem,
     statement::Statement,
-    verify::verify,
     witness::Witness,
 };
 
@@ -248,6 +247,8 @@ fn main() {
     }
 
     // {
+    //     use crate::verify::verify;
+    //
     //     let tail = false;
     //     let (wit, _proof, stat) = generate_context(30, 5, tail, random_seed());
 

@@ -1,5 +1,4 @@
 pub const LOG_PRIME: u64 = 40;
-pub const PRIME_OFFSET: u64 = 195;
 /// The prime number `p` defining `A_p = Z / pZ`.
 pub const PRIME: u64 = (1 << 40) - 195;
 /// The inverse of `2` modulo `p`.
