@@ -9,6 +9,7 @@ use sha3::{
     digest::{ExtendableOutput, Update, XofReader},
 };
 
+use crate::constants::PLAN;
 use crate::constants::{DEGREE, ONE_HALF_MOD_PRIME, PRIME, PRIME_BYTES_LEN, TAU1, TAU2};
 use std::fmt::Debug;
 use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
@@ -335,17 +336,12 @@ impl PolyRingElem {
     pub fn invert_x(&mut self) {
         let deg_usize = DEGREE as usize;
 
-        // let mut new_elem: Vec<BaseRingElem> = Vec::with_capacity(deg_usize);
-        // new_elem.push(self.element[0]);
-
-        // self.element.reverse();
         for i in 1..((deg_usize - 1) / 2) {
             self.element.swap(i, deg_usize - i);
             if i & 1 == 1 {
                 self.element[i] = -self.element[i];
             }
         }
-        // self.element = new_elem;
     }
 
     pub fn karatsuba_mul(max_deg: usize, left: &[BaseRingElem], right: &[BaseRingElem]) -> Self {
@@ -405,7 +401,7 @@ where
     }
 }
 
-/// Add two `PolyRingElem`. Add each pair of `&BaseRingElem`.
+/// Add two `PolyRingElem`: add each pair of `&BaseRingElem`.
 impl<T> Add<T> for &PolyRingElem
 where
     T: AsRef<PolyRingElem>,
@@ -425,7 +421,7 @@ where
     }
 }
 
-/// Add two `PolyRingElem`. Add each pair of `&BaseRingElem`.
+/// Add two `PolyRingElem`: add each pair of `&BaseRingElem`.
 impl<T> Add<T> for PolyRingElem
 where
     T: AsRef<PolyRingElem>,
@@ -660,15 +656,20 @@ impl Mul<PolyRingElem> for &BaseRingElem {
 /// Polynomial mul assign.
 impl MulAssign<&PolyRingElem> for PolyRingElem {
     fn mul_assign(&mut self, other: &PolyRingElem) {
-        // self.element =
-        //     PolyRingElem::karatsuba_mul(DEGREE as usize, &self.element, &other.element).element;
-        let clone = self.clone();
-        self.element.fill(0.into());
+        let mut self_ntt: Vec<u64> = self.element.iter().map(|b| b.element.residue()).collect();
+        let mut other_ntt: Vec<u64> = other.element.iter().map(|b| b.element.residue()).collect();
 
-        for (i, coef) in other.element.iter().enumerate() {
-            let tmp = coef * clone.mul_by_x_power(i as u64);
-            *self += tmp;
-        }
+        // convert to NTT domain
+        PLAN.fwd(&mut self_ntt);
+        PLAN.fwd(&mut other_ntt);
+
+        // multiply
+        PLAN.mul_assign_normalize(&mut self_ntt, &other_ntt);
+
+        // convert back
+        PLAN.inv(&mut self_ntt);
+
+        self.element = PolyRingElem::from_vec_u64(self_ntt).element;
     }
 }
 
@@ -689,13 +690,8 @@ impl Mul<&PolyRingElem> for &PolyRingElem {
     type Output = PolyRingElem;
     fn mul(self, other: &PolyRingElem) -> Self::Output {
         // PolyRingElem::karatsuba_mul(DEGREE as usize, &self.element, &other.element)
-        let mut result = PolyRingElem::zero();
-        let clone = self.clone();
-
-        for (i, coef) in other.element.iter().enumerate() {
-            let tmp = coef * clone.mul_by_x_power(i as u64);
-            result += tmp;
-        }
+        let mut result = self.clone();
+        result *= other;
 
         result
     }
@@ -901,6 +897,62 @@ mod tests {
 
         for pol in decomp[3..].into_iter() {
             assert_eq!(*pol, PolyRingElem::zero());
+        }
+    }
+
+    #[test]
+    fn ntt_mul() {
+        let seed = random_seed();
+        let mut rng = ChaCha8Rng::from_seed(seed);
+
+        for _ in 0..100 {
+            // NTT
+            let lhs = PolyRingElem::random(&mut rng);
+            let rhs = PolyRingElem::random(&mut rng);
+
+            let mut lhs_ntt: Vec<u64> = lhs.element.iter().map(|b| b.element.residue()).collect();
+            let mut rhs_ntt: Vec<u64> = rhs.element.iter().map(|b| b.element.residue()).collect();
+
+            // convert to NTT domain
+            PLAN.fwd(&mut lhs_ntt);
+            PLAN.fwd(&mut rhs_ntt);
+
+            PLAN.mul_assign_normalize(&mut lhs_ntt, &rhs_ntt);
+            PLAN.inv(&mut lhs_ntt);
+
+            let ntt_result = PolyRingElem::from_vec_u64(lhs_ntt);
+
+            // Naive
+            let mut naive_result = PolyRingElem::zero();
+
+            for (i, coef) in rhs.element.iter().enumerate() {
+                let tmp = coef * lhs.mul_by_x_power(i as u64);
+                naive_result += tmp;
+            }
+
+            // assert equal
+            assert_eq!(ntt_result, naive_result);
+        }
+    }
+
+    #[test]
+    fn ntt() {
+        let seed = random_seed();
+        let mut rng = ChaCha8Rng::from_seed(seed);
+
+        for _ in 0..100 {
+            let poly = PolyRingElem::random(&mut rng);
+            let one = PolyRingElem::one();
+            let mut ntt: Vec<u64> = poly.element.iter().map(|b| b.element.residue()).collect();
+            let old_ntt = ntt.clone();
+            let mut one_ntt: Vec<u64> = one.element.iter().map(|b| b.element.residue()).collect();
+
+            PLAN.fwd(&mut ntt);
+            PLAN.fwd(&mut one_ntt);
+            PLAN.mul_assign_normalize(&mut ntt, &one_ntt);
+            PLAN.inv(&mut ntt);
+
+            assert_eq!(old_ntt, ntt);
         }
     }
 }

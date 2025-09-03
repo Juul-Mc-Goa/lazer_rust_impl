@@ -16,7 +16,7 @@ pub struct Proof {
     pub split_dim: usize,
     /// Decomposition parts.
     pub chunks: Vec<usize>,
-    /// `true` if this proof should not be recursively reduced further.
+    /// `true` if this proof is the last one of a composite proof.
     pub tail: bool,
     /// Commitment parameters.
     pub commit_params: CommitParams,

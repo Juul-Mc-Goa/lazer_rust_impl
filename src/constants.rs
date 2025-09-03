@@ -1,8 +1,11 @@
+use concrete_ntt::prime64::Plan;
+
 pub const LOG_PRIME: u64 = 40;
 /// The prime number `p` defining `A_p = Z / pZ`.
-pub const PRIME: u64 = (1 << 40) - 195;
+// pub const PRIME: u64 = (1 << 40) - 195;
+pub const PRIME: u64 = (1 << 40) - 4479;
 /// The inverse of `2` modulo `p`.
-pub const ONE_HALF_MOD_PRIME: u64 = ((1 << 40) - 194) >> 1;
+pub const ONE_HALF_MOD_PRIME: u64 = (PRIME + 1) >> 1;
 
 pub const PRIME_BYTES_LEN: usize = (LOG_PRIME as usize) >> 3;
 pub const U128_LEN: usize = 128_usize.div_ceil(LOG_PRIME as usize);
@@ -27,4 +30,6 @@ lazy_static! {
     pub static ref SLACK: f64 = (128_f64 / 30.0).sqrt();
     /// some factor used in the `sis_secure` function
     pub static ref LOG_DELTA: f64 = 1.00444_f64.log2();
+    /// structure needed for NTT computations with the `concrete_ntt` crate.
+    pub static ref PLAN: Plan = Plan::try_new(DEGREE as usize, PRIME).unwrap();
 }

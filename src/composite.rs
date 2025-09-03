@@ -408,7 +408,7 @@ pub fn reduce_amortize_tail(output_stat: &mut Statement, proof: &Proof) {
             * (1 << (z_len - 1) * z_base) as f64
             * (output_stat.squared_norm_bound as f64).sqrt(),
     ) {
-        panic!("reduce_amortize(): Inner commitments are not secure");
+        panic!("reduce_amortize_tail(): Inner commitments are not secure");
     }
 
     if !proof.tail
@@ -417,7 +417,7 @@ pub fn reduce_amortize_tail(output_stat: &mut Statement, proof: &Proof) {
             2.0 * *SLACK * (output_stat.squared_norm_bound as f64).sqrt(),
         )
     {
-        panic!("reduce_amortize(): Outer commitments are not secure");
+        panic!("reduce_amortize_tail(): Outer commitments are not secure");
     }
 
     let (
@@ -431,7 +431,7 @@ pub fn reduce_amortize_tail(output_stat: &mut Statement, proof: &Proof) {
         },
     ) = (&mut output_stat.commitments, &proof.commitments)
     else {
-        panic!("reduce_amortize(): incompatible Tail variants (output_stat, proof)");
+        panic!("reduce_amortize_tail(): incompatible Tail variants (output_stat, proof)");
     };
 
     *stat_garbage = proof_garbage.clone();

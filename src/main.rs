@@ -155,12 +155,6 @@ fn generate_context(r: usize, dim: usize, tail: bool, seed: Seed) -> (Witness, P
 }
 
 pub fn prove(statement: &Statement, witness: &Witness, tail: bool) -> (Statement, Witness, Proof) {
-    let guard = pprof::ProfilerGuardBuilder::default()
-        .frequency(1000)
-        .blocklist(&["libc", "libgcc", "pthread", "vdso"])
-        .build()
-        .unwrap();
-
     let mut proof = Proof::new(witness.clone(), 1, tail);
     let mut output_stat = Statement::new(
         &proof,
@@ -180,7 +174,9 @@ pub fn prove(statement: &Statement, witness: &Witness, tail: bool) -> (Statement
     let packed_wit = proof.pack_witness(&witness);
 
     let now = Instant::now();
+
     let jl_matrices = project(&mut output_stat, &mut proof, &witness);
+
     println!(
         "Projected ({} sec), hash: {:?}",
         now.elapsed().as_secs_f32(),
@@ -188,12 +184,23 @@ pub fn prove(statement: &Statement, witness: &Witness, tail: bool) -> (Statement
     );
 
     let now = Instant::now();
+    let guard = pprof::ProfilerGuardBuilder::default()
+        .frequency(1000)
+        .blocklist(&["libc", "libgcc", "pthread", "vdso"])
+        .build()
+        .unwrap();
+
     aggregate_constant_coeff(&mut output_stat, &mut proof, &witness, &jl_matrices);
     println!(
         "Aggregated 1 ({} sec), hash: {:?}",
         now.elapsed().as_secs_f32(),
         output_stat.hash
     );
+
+    if let Ok(report) = guard.report().build() {
+        let file = std::fs::File::create("agg_one_flamegraph.svg").unwrap();
+        report.flamegraph(file).unwrap();
+    };
 
     let now = Instant::now();
     amortize_aggregate(
@@ -209,10 +216,10 @@ pub fn prove(statement: &Statement, witness: &Witness, tail: bool) -> (Statement
         output_stat.hash
     );
 
-    if let Ok(report) = guard.report().build() {
-        let file = std::fs::File::create("flamegraph.svg").unwrap();
-        report.flamegraph(file).unwrap();
-    };
+    // if let Ok(report) = guard.report().build() {
+    //     let file = std::fs::File::create("flamegraph.svg").unwrap();
+    //     report.flamegraph(file).unwrap();
+    // };
 
     (output_stat, output_wit, proof)
 }
@@ -220,7 +227,7 @@ pub fn prove(statement: &Statement, witness: &Witness, tail: bool) -> (Statement
 fn main() {
     {
         let tail = false;
-        let (wit, _proof, stat) = generate_context(3, 500, tail, random_seed());
+        let (wit, _proof, stat) = generate_context(30, 500, tail, random_seed());
         println!("Generated random context");
 
         let mut comp_data = Composite {
