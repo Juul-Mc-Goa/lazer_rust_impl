@@ -1,4 +1,7 @@
-use std::ops::{Add, AddAssign, Mul, MulAssign};
+use std::{
+    iter::Sum,
+    ops::{Add, AddAssign, Mul, MulAssign},
+};
 
 use crate::ring::{BaseRingElem, PolyRingElem};
 
@@ -241,12 +244,18 @@ impl PolyVec {
 
 impl<'a> AddAssign<&'a PolyVec> for PolyVec {
     fn add_assign(&mut self, other: &'a PolyVec) {
-        self.0
-            .iter_mut()
-            .zip(other.0.iter())
-            .for_each(|(self_coord, other_coord)| {
-                *self_coord += other_coord;
-            });
+        if other.0.is_empty() {
+            return;
+        } else if self.0.is_empty() {
+            self.0 = other.0.clone()
+        } else {
+            self.0
+                .iter_mut()
+                .zip(other.0.iter())
+                .for_each(|(self_coord, other_coord)| {
+                    *self_coord += other_coord;
+                });
+        }
     }
 }
 impl AddAssign<PolyVec> for PolyVec {
@@ -265,6 +274,24 @@ where
         new += other;
 
         new
+    }
+}
+
+impl<'a> Sum<&'a PolyVec> for PolyVec {
+    fn sum<I: Iterator<Item = &'a PolyVec>>(iter: I) -> PolyVec {
+        let mut result = PolyVec::new();
+        iter.for_each(|v| result += v);
+
+        result
+    }
+}
+
+impl Sum<PolyVec> for PolyVec {
+    fn sum<I: Iterator<Item = PolyVec>>(iter: I) -> PolyVec {
+        let mut result = PolyVec::new();
+        iter.for_each(|v| result += v);
+
+        result
     }
 }
 
@@ -342,6 +369,14 @@ impl PolyMatrix {
 
     /// Compute `self * input`.
     pub fn apply_raw(&self, input: &[PolyRingElem]) -> Vec<PolyRingElem> {
+        if input.len() != self.0[0].len() {
+            panic!(
+                "Applying matrix to incompatible vector: matrix columns = {}, vector length = {}",
+                self.0[0].len(),
+                input.len()
+            );
+        }
+
         let mut output = vec![PolyRingElem::zero(); self.0.len()];
         self.add_apply_raw(&mut output, input);
 

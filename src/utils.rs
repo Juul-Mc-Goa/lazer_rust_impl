@@ -4,6 +4,8 @@ use crate::{
     ring::PolyRingElem,
 };
 
+use rayon::prelude::*;
+
 pub type Aes128Ctr64LE = ctr::Ctr64LE<aes::Aes128>;
 
 /// Computes smallest power of 2 that is not smaller than `x`.
@@ -51,13 +53,21 @@ pub fn add_apply_matrices_b(
 ) {
     let (com_rank_1, unif_len) = (com_params.commit_rank_1, com_params.uniform_length);
 
-    for k in 0..unif_len {
-        for i in 0..r {
-            let start = (k * r + i) * com_rank_1;
-            let end = start + com_rank_1;
-            matrices_b[k][i].add_apply_raw(out, &t[start..end]);
-        }
-    }
+    (0..unif_len)
+        .into_par_iter()
+        .map(|k| {
+            (0..r).into_par_iter().map(move |i| {
+                let start = (k * r + i) * com_rank_1;
+                let end = start + com_rank_1;
+                PolyVec(matrices_b[k][i].apply_raw(&t[start..end]))
+            })
+        })
+        .flatten()
+        .sum::<PolyVec>()
+        .0
+        .iter()
+        .zip(out.iter_mut())
+        .for_each(|(i, o)| *o += i);
 }
 
 pub fn add_apply_matrices_garbage(
@@ -69,11 +79,19 @@ pub fn add_apply_matrices_garbage(
 ) {
     let choose_2 = |j: usize| j * (j + 1) / 2;
 
-    for k in 0..len {
-        for i in 0..r {
-            let start = k * choose_2(r) + choose_2(i);
-            let end = start + i + 1;
-            matrices[k][i].add_apply_raw(out, &polyvec[start..end]);
-        }
-    }
+    (0..len)
+        .into_par_iter()
+        .map(|k| {
+            (0..r).into_par_iter().map(move |i| {
+                let start = k * choose_2(r) + choose_2(i);
+                let end = start + i + 1;
+                PolyVec(matrices[k][i].apply_raw(&polyvec[start..end]))
+            })
+        })
+        .flatten()
+        .sum::<PolyVec>()
+        .0
+        .iter()
+        .zip(out.iter_mut())
+        .for_each(|(i, o)| *o += i);
 }

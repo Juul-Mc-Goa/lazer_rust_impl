@@ -1,9 +1,10 @@
-use crate::constants::{DEGREE, PRIME};
+use crate::constants::DEGREE;
 use crate::linear_algebra::PolyVec;
 use crate::ring::{BaseRingElem, PolyRingElem};
 use crate::utils::Aes128Ctr64LE;
 
 use aes::cipher::StreamCipher;
+use rayon::prelude::*;
 
 #[allow(dead_code)]
 pub struct JLMatrix {
@@ -74,11 +75,11 @@ impl JLMatrix {
         let neg_one = -BaseRingElem::one();
 
         self.data
-            .chunks_exact(degree_bytes * self.dim)
+            .par_chunks_exact(degree_bytes * self.dim)
             .map(|packed_v| {
                 PolyVec(
                     packed_v
-                        .chunks_exact(degree_bytes)
+                        .par_chunks_exact(degree_bytes)
                         .map(|packed_poly| PolyRingElem {
                             element: (0..(DEGREE as usize))
                                 .map(|bit| {
@@ -104,52 +105,12 @@ impl JLMatrix {
     pub fn as_polyvecs_inverted(&self) -> Vec<PolyVec> {
         let mut result = self.as_polyvecs();
 
-        result.as_mut_slice().into_iter().for_each(|v| {
+        result.as_mut_slice().into_par_iter().for_each(|v| {
             v.invert_x();
         });
 
         result
     }
-
-    // pub fn as_polyvecs_inverted(&self) -> Vec<PolyVec> {
-    //     let degree_bytes = DEGREE as usize >> 3;
-
-    //     let one = BaseRingElem::one();
-    //     let neg_one = -BaseRingElem::one();
-    //     let poly_zero = PolyRingElem::zero();
-
-    //     self.data
-    //         .chunks_exact(degree_bytes * self.dim)
-    //         .map(|packed_v| {
-    //             PolyVec(
-    //                 packed_v
-    //                     .chunks_exact(degree_bytes)
-    //                     .map(|packed_poly| {
-    //                         let mut new_poly = poly_zero.clone();
-    //                         new_poly.element[0] = if packed_poly[0] & 1 != 0 {
-    //                             neg_one
-    //                         } else {
-    //                             one
-    //                         };
-    //                         (1..(DEGREE as usize)).for_each(|bit| {
-    //                             let inverse_bit = DEGREE as usize - bit;
-    //                             let byte_idx = inverse_bit >> 3;
-    //                             let mask = 1 << (inverse_bit & 7);
-
-    //                             if (bit & 1 == 1) ^ (packed_poly[byte_idx] & mask != 0) {
-    //                                 new_poly.element[bit] = neg_one;
-    //                             } else {
-    //                                 new_poly.element[bit] = one;
-    //                             }
-    //                         });
-
-    //                         new_poly
-    //                     })
-    //                     .collect(),
-    //             )
-    //         })
-    //         .collect()
-    // }
 }
 
 #[cfg(test)]
