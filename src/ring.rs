@@ -90,6 +90,7 @@ impl BaseRingElem {
             element: MontgomeryInt::new(0, &PRIME),
         }
     }
+
     /// Generate 1 mod `PRIME`.
     pub fn one() -> Self {
         BaseRingElem {
@@ -334,16 +335,17 @@ impl PolyRingElem {
     pub fn invert_x(&mut self) {
         let deg_usize = DEGREE as usize;
 
-        let mut new_elem: Vec<BaseRingElem> = Vec::with_capacity(deg_usize);
-        new_elem.push(self.element[0]);
+        // let mut new_elem: Vec<BaseRingElem> = Vec::with_capacity(deg_usize);
+        // new_elem.push(self.element[0]);
 
+        // self.element.reverse();
         for i in 1..((deg_usize - 1) / 2) {
             self.element.swap(i, deg_usize - i);
             if i & 1 == 1 {
                 self.element[i] = -self.element[i];
             }
         }
-        self.element = new_elem;
+        // self.element = new_elem;
     }
 
     pub fn karatsuba_mul(max_deg: usize, left: &[BaseRingElem], right: &[BaseRingElem]) -> Self {

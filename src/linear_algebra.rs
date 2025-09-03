@@ -241,9 +241,12 @@ impl PolyVec {
 
 impl<'a> AddAssign<&'a PolyVec> for PolyVec {
     fn add_assign(&mut self, other: &'a PolyVec) {
-        for (self_coord, other_coord) in self.0.iter_mut().zip(other.0.iter()) {
-            *self_coord += other_coord;
-        }
+        self.0
+            .iter_mut()
+            .zip(other.0.iter())
+            .for_each(|(self_coord, other_coord)| {
+                *self_coord += other_coord;
+            });
     }
 }
 impl AddAssign<PolyVec> for PolyVec {
@@ -271,9 +274,9 @@ where
     PolyRingElem: MulAssign<&'a T>,
 {
     fn mul_assign(&mut self, other: &'a T) {
-        for coef_self in self.0.iter_mut() {
+        self.0.iter_mut().for_each(|coef_self| {
             *coef_self *= other;
-        }
+        });
     }
 }
 
@@ -330,11 +333,11 @@ impl PolyMatrix {
             );
         }
 
-        for (i, line) in self.0.iter().enumerate() {
-            for (coef, coord) in line.iter().zip(input.iter()) {
+        self.0.iter().enumerate().for_each(|(i, line)| {
+            line.iter().zip(input.iter()).for_each(|(coef, coord)| {
                 output[i] += coef * coord;
-            }
-        }
+            });
+        });
     }
 
     /// Compute `self * input`.
@@ -367,11 +370,14 @@ impl PolyMatrix {
             );
         }
 
-        for (coef, line) in input.iter().zip(self.0.iter()) {
-            for (result_coord, input_coord) in result.iter_mut().zip(line.iter()) {
-                *result_coord += coef * input_coord;
-            }
-        }
+        input.iter().zip(self.0.iter()).for_each(|(coef, line)| {
+            result
+                .iter_mut()
+                .zip(line.iter())
+                .for_each(|(result_coord, input_coord)| {
+                    *result_coord += coef * input_coord;
+                });
+        });
 
         result
     }
