@@ -334,43 +334,27 @@ pub fn reduce_agg_amortize(output_stat: &mut Statement, proof: &Proof, input_sta
     };
 
     // handle u1:
-    new_linear_part.add_u1_constraint(&c_1, matrices_b, matrices_c, &com_params, input_stat);
+    new_linear_part.add_u1_constraint(&c_1, matrices_b, matrices_c, &com_params, input_stat.r);
     output_stat.constraint.constant = -c_1.scalar_prod(u1);
 
     // handle u2:
-    new_linear_part.add_u2_constraint(&c_2, matrices_d, &com_params, input_stat);
+    new_linear_part.add_u2_constraint(&c_2, matrices_d, &com_params, input_stat.r);
     output_stat.constraint.constant -= c_2.scalar_prod(u2);
 
     // handle z:
-    new_linear_part.add_inner_constraint(
-        &c_z,
-        matrix_a,
-        &com_params,
-        input_stat,
-        &input_stat.challenges,
-    );
+    new_linear_part.add_inner_constraint(&c_z, matrix_a, input_stat);
 
     // handle h:
-    new_linear_part.add_h_constraint(
-        &input_stat.constraint.linear_part,
-        &com_params,
-        input_stat,
-        &input_stat.challenges,
-    );
+    new_linear_part.add_h_constraint(&input_stat.constraint.linear_part, input_stat);
 
     // handle aggregated relation:
-    new_linear_part.add_agg_constraint(
-        &c_agg,
-        &output_stat.constraint.quadratic_part,
-        &com_params,
-        input_stat,
-    );
+    new_linear_part.add_agg_constraint(&c_agg, &com_params, input_stat);
     output_stat.constraint.constant += &c_agg * &input_stat.constraint.constant;
 
     // if the quadratic part in `input_stat` is non-empty:
     if !input_stat.constraint.quadratic_part.0.is_empty() {
         // handle g
-        new_linear_part.add_g_constraint(&c_g, &com_params, input_stat, &input_stat.challenges);
+        new_linear_part.add_g_constraint(&c_g, &com_params, input_stat);
 
         // handle quadratic part
         let chunks = proof.chunks[0];
@@ -648,5 +632,5 @@ pub fn composite_verify(comp_data: &Composite, statement: &mut [Statement; 2]) -
     // last reduce, Tail variant
     statement[i ^ 1] = reduce_tail(&comp_data.proof[l - 1], &statement[i]);
 
-    verify(&statement[i ^ 1], &statement[i], &comp_data.witness)
+    verify(&statement[i ^ 1], &comp_data.witness)
 }

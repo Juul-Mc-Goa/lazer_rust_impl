@@ -5,9 +5,9 @@ use rand_chacha::ChaCha8Rng;
 
 use crate::{
     aggregate_one::aggregate_constant_coeff,
-    aggregate_two::amortize_aggregate,
+    aggregate_two::aggregate_two,
+    amortize::amortize,
     commit::{CommitKey, Commitments, commit},
-    composite::{Composite, composite_prove, composite_verify, witness_size},
     constraint::Constraint,
     linear_algebra::{PolyVec, SparsePolyMatrix},
     project::project,
@@ -187,21 +187,30 @@ pub fn prove(statement: &Statement, witness: &Witness, tail: bool) -> (Statement
 
     aggregate_constant_coeff(&mut output_stat, &mut proof, &witness, &jl_matrices);
     println!(
-        "Aggregated ({} sec), hash: {:?}",
+        "Aggregated 1 ({} sec), hash: {:?}",
         now.elapsed().as_secs_f32(),
         output_stat.hash
     );
 
     let now = Instant::now();
-    amortize_aggregate(
-        &mut output_stat,
-        &mut output_wit,
-        &mut proof,
-        &packed_wit,
-        &statement,
-    );
+    // amortize_aggregate(
+    //     &mut output_stat,
+    //     &mut output_wit,
+    //     &mut proof,
+    //     &packed_wit,
+    //     &statement,
+    // );
+    aggregate_two(&mut output_stat, &mut proof, &statement);
     println!(
-        "Amortized ({} sec), hash: {:?}",
+        "Aggregated 2 ({} sec), hash: {:?}",
+        now.elapsed().as_secs_f32(),
+        output_stat.hash
+    );
+
+    let now = Instant::now();
+    amortize(&mut output_stat, &mut output_wit, &mut proof, &packed_wit);
+    println!(
+        "Amortize ({} sec), hash: {:?}",
         now.elapsed().as_secs_f32(),
         output_stat.hash
     );
@@ -211,6 +220,7 @@ pub fn prove(statement: &Statement, witness: &Witness, tail: bool) -> (Statement
 
 fn main() {
     // {
+    //     use crate::composite::{Composite, composite_prove, composite_verify, witness_size};
     //     let tail = false;
     //     let (wit, _proof, stat) = generate_context(30, 50, tail, random_seed());
     //     println!("Generated random context");
@@ -242,19 +252,19 @@ fn main() {
         use crate::verify::verify;
 
         let tail = false;
-        let dim = 256;
-        let r = 64;
+        let dim = 128;
+        let r = 16;
         let (wit, _proof, stat) = generate_context(r, dim, tail, random_seed());
 
         println!("Generated random context");
 
         let (output_stat, output_wit, _proof) = prove(&stat, &wit, tail);
 
-        // println!("\nOutput statement:");
-        // output_stat.print();
+        println!("\nOutput statement:");
+        output_stat.print();
 
         print!("\nVerify: ");
-        let result = verify(&output_stat, &stat, &output_wit);
+        let result = verify(&output_stat, &output_wit);
         println!("{result:?}");
     }
 }

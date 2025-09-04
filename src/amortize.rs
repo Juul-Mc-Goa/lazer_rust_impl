@@ -19,7 +19,6 @@ use sha3::{
 /// Amortize when `proof.tail` is true.
 pub fn amortize_tail(
     output_stat: &mut Statement,
-    input_stat: &Statement,
     output_wit: &mut Witness,
     proof: &mut Proof,
     tmp_wit: &Witness,
@@ -31,7 +30,7 @@ pub fn amortize_tail(
     let mut h: Vec<PolyRingElem> = Vec::with_capacity(2 * r);
     let mut hashbuf = [0_u8; 16 + 2 * DEGREE as usize * PRIME_BYTES_LEN];
 
-    let linear_part = &input_stat.constraint.linear_part;
+    let linear_part = &output_stat.constraint.linear_part;
     let s = &tmp_wit.vectors;
     let challenges = &mut output_stat.challenges;
 
@@ -47,6 +46,7 @@ pub fn amortize_tail(
     let mut reader = hasher.finalize_xof();
     reader.read(&mut hashbuf[..32]);
 
+    // generate first challenge
     challenges.push(PolyRingElem::challenge_from_seed(&hashbuf[..32]));
     s_acc *= &challenges[0];
     phi_acc *= &challenges[0];
@@ -108,7 +108,6 @@ pub fn amortize_tail(
     //   output_wit.norm_square
     //   output_stat.squared_norm_bound
     let mut new_wit: Vec<PolyVec> = Vec::new();
-
     output_wit.norm_square.resize(z_len + 1, 0_u128);
 
     for (i, z_small) in s_acc.decomp(z_base, z_len).into_iter().enumerate() {
@@ -121,11 +120,12 @@ pub fn amortize_tail(
     output_wit.vectors = new_wit;
     output_wit.dim = output_wit.vectors.iter().map(|w| w.0.len()).collect();
     proof.norm_square = output_stat.squared_norm_bound;
+
     output_stat
         .constraint
         .linear_part
         .0
-        .resize(dim * r, PolyRingElem::zero());
+        .resize(dim, PolyRingElem::zero());
 }
 
 /// Transform a witness `(s_1, ..., ,s_r)` into a new witness `(z, t, g, h)`.
@@ -141,13 +141,13 @@ pub fn amortize_tail(
 #[allow(dead_code)]
 pub fn amortize(
     output_stat: &mut Statement,
-    input_stat: &Statement,
     output_wit: &mut Witness,
     proof: &mut Proof,
     packed_wit: &Witness,
 ) {
     if proof.tail {
-        amortize_tail(output_stat, input_stat, output_wit, proof, packed_wit);
+        amortize_tail(output_stat, output_wit, proof, packed_wit);
+        return;
     }
 
     let (r, dim, squared_norm_bound, hash, commit_key) = (
@@ -169,13 +169,22 @@ pub fn amortize(
     let Commitments::NoTail {
         inner: _,
         u1: _,
-        u2,
+        u2: stat_u2,
     } = &mut output_stat.commitments
     else {
         panic!("wrong `Tail` variant for output statement's commitments");
     };
 
-    let (challenges, constraint) = (&input_stat.challenges, &input_stat.constraint);
+    let Commitments::NoTail {
+        inner: _,
+        u1: _,
+        u2: proof_u2,
+    } = &mut proof.commitments
+    else {
+        panic!("wrong `Tail` variant for output statement's commitments");
+    };
+
+    let (challenges, constraint) = (&mut output_stat.challenges, &output_stat.constraint);
 
     // compute linear garbage
     let linear_part = &constraint.linear_part;
@@ -213,15 +222,16 @@ pub fn amortize(
     };
 
     // compute u2
-    *u2 = PolyVec::zero(com_rank_2);
+    *stat_u2 = PolyVec::zero(com_rank_2);
     // sum(j <= i, D_ijk h_ijk)
-    add_apply_matrices_garbage(&mut u2.0, matrices_d, &h.0, r, unif_len);
+    add_apply_matrices_garbage(&mut stat_u2.0, matrices_d, &h.0, r, unif_len);
+    *proof_u2 = stat_u2.clone();
 
     // use u2 to update output_stat.hash
     // initialise hasher
     let mut hasher = Shake128::default();
     hasher.update(hash);
-    hasher.update(&u2.iter_bytes().collect::<Vec<_>>());
+    hasher.update(&stat_u2.iter_bytes().collect::<Vec<_>>());
     let mut reader = hasher.finalize_xof();
 
     // update hash
@@ -231,33 +241,42 @@ pub fn amortize(
 
     // generate challenges
     let mut rng = ChaCha8Rng::from_seed(hashbuf);
-    output_stat.challenges = (0..r).map(|_| PolyRingElem::challenge(&mut rng)).collect();
+    *challenges = (0..r).map(|_| PolyRingElem::challenge(&mut rng)).collect();
 
-    // compute z
+    // compute z, phi
     let mut z = PolyVec::zero(dim);
+    let mut phi = PolyVec::zero(dim);
 
     challenges
         .iter()
         .zip(packed_wit.vectors.iter())
-        .for_each(|(c_i, s_i)| z.add_mul_assign(c_i, s_i));
+        .zip(output_stat.constraint.linear_part.0.chunks(dim))
+        .for_each(|((c_i, s_i), phi_i)| {
+            z.add_mul_assign(c_i, s_i);
+            phi.add_mul_assign(c_i, &PolyVec(phi_i.to_vec()));
+        });
 
     // decompose z
     let mut z: Vec<PolyVec> = z.decomp(z_base, z_len);
 
-    // new_witness = (z_0, ... z_{z_len - 1}, t || g || h)
-    // build new witness: z part
+    // new_witness = (z_0, ... z_(z_len-1), t || g || h)
     let mut new_wit: Vec<PolyVec> = Vec::with_capacity(r);
-    new_wit.append(&mut z);
 
-    // build new_witness: t || g || h
+    // build new_witness
     // t || g is stored in output_wit[0] (computed in `commit()`)
     let last_idx = z_len;
+
+    new_wit.append(&mut z);
     new_wit.push(output_wit.vectors[0].clone());
     new_wit[last_idx].concat(&mut h);
 
     // store new witness
     output_wit.vectors = new_wit;
 
+    // store new linear part
+    output_stat.constraint.linear_part = phi;
+
+    // update norms
     for i in 0..=z_len {
         output_wit
             .norm_square
