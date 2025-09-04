@@ -93,35 +93,17 @@ impl Witness {
         self.vectors.append(&mut other.vectors);
     }
 
-    // /// Compute linear garbage terms: a vector of size `r(r+1)/2` built from
-    // /// `self` and `constraint.linear_part`.
-    // pub fn linear_garbage(&self, constraint: &Constraint) -> PolyVec {
-    //     let mut result = PolyVec(Vec::with_capacity(self.r * (self.r + 1) / 2));
+    /// Post-process `self` after one round of reduction: this means
+    /// splitting the last vector and updating the other fields accordingly.
+    pub fn post_process(&mut self) {
+        let dim = self.vectors[0].0.len();
+        let mut tgh = self.vectors.pop().unwrap().into_chunks(dim);
+        self.vectors.append(&mut tgh);
 
-    //     for i in 0..self.r {
-    //         for j in 0..=i {
-    //             // result[i(i+1)/2 + j] = (<lin_part[i], wit[j]> + <lin_part[j], wit[i]>) / 2
-    //             let part_1 = constraint.linear_part[i].scalar_prod(&self.vectors[j]);
-    //             let part_2 = constraint.linear_part[j].scalar_prod(&self.vectors[i]);
-    //             result.0.push((part_1 + part_2).halve());
-    //         }
-    //     }
+        self.r = self.vectors.len();
+        let r = self.r;
+        self.dim = vec![dim; r];
 
-    //     result
-    // }
-
-    // /// Compute quadratic garbage terms: a vector of size `r(r+1)/2` containing all
-    // /// scalar products `< self.vectors[i], self.vectors[j] >` for `0 <= j <= i
-    // /// < r`.
-    // pub fn quadratic_garbage(&self) -> PolyVec {
-    //     let mut result = PolyVec(Vec::with_capacity(self.r * (self.r + 1) / 2));
-
-    //     for i in 0..self.r {
-    //         for j in 0..=i {
-    //             result.0.push(self.vectors[i].scalar_prod(&self.vectors[j]));
-    //         }
-    //     }
-
-    //     result
-    // }
+        self.norm_square = self.vectors.iter().map(|v| v.norm_square()).collect();
+    }
 }
