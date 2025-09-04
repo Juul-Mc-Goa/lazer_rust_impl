@@ -34,13 +34,10 @@ pub struct RecursedVector {
 #[allow(dead_code)]
 impl RecursedVector {
     /// Initialize fields with `PolyVec::zero()`.
-    pub fn new(input_stat: &Statement) -> Self {
-        let com_params = &input_stat.commit_params;
-        let z_len = input_stat.commit_params.z_length;
-        let unif_len = input_stat.commit_params.uniform_length;
-        let quad_len = input_stat.commit_params.quadratic_length;
-        let dim = input_stat.dim;
-        let r = input_stat.r;
+    pub fn new(com_params: &CommitParams, r: usize, dim: usize) -> Self {
+        let z_len = com_params.z_length;
+        let unif_len = com_params.uniform_length;
+        let quad_len = com_params.quadratic_length;
         let quad_number = r * (r + 1) / 2;
 
         let z = vec![PolyVec::zero(dim); z_len];
@@ -491,7 +488,7 @@ pub fn amortize_aggregate(
         panic!("aggregate 2: commitment key is CommitKeyData::Tail");
     };
 
-    let mut new_linear_part = RecursedVector::new(input_stat);
+    let mut new_linear_part = RecursedVector::new(com_params, input_stat.r, input_stat.dim);
 
     let Commitments::NoTail { inner: _, u1, u2 } = &input_stat.commitments else {
         panic!("aggregate 2: commitments in input statement is Commitments::Tail");

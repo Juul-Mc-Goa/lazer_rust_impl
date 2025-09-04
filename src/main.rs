@@ -184,23 +184,13 @@ pub fn prove(statement: &Statement, witness: &Witness, tail: bool) -> (Statement
     );
 
     let now = Instant::now();
-    let guard = pprof::ProfilerGuardBuilder::default()
-        .frequency(1000)
-        .blocklist(&["libc", "libgcc", "pthread", "vdso"])
-        .build()
-        .unwrap();
 
     aggregate_constant_coeff(&mut output_stat, &mut proof, &witness, &jl_matrices);
     println!(
-        "Aggregated 1 ({} sec), hash: {:?}",
+        "Aggregated ({} sec), hash: {:?}",
         now.elapsed().as_secs_f32(),
         output_stat.hash
     );
-
-    if let Ok(report) = guard.report().build() {
-        let file = std::fs::File::create("agg_one_flamegraph.svg").unwrap();
-        report.flamegraph(file).unwrap();
-    };
 
     let now = Instant::now();
     amortize_aggregate(
@@ -216,58 +206,55 @@ pub fn prove(statement: &Statement, witness: &Witness, tail: bool) -> (Statement
         output_stat.hash
     );
 
-    // if let Ok(report) = guard.report().build() {
-    //     let file = std::fs::File::create("flamegraph.svg").unwrap();
-    //     report.flamegraph(file).unwrap();
-    // };
-
     (output_stat, output_wit, proof)
 }
 
 fn main() {
-    {
-        let tail = false;
-        let (wit, _proof, stat) = generate_context(30, 500, tail, random_seed());
-        println!("Generated random context");
-
-        let mut comp_data = Composite {
-            l: 0,
-            size: 0.0,
-            proof: Vec::new(),
-            witness: wit.clone(),
-        };
-        let mut temp_stat = [stat.clone(), stat.clone()];
-        let mut temp_wit_size = [witness_size(&wit), 0_f64];
-        let mut temp_wit = [wit.clone(), wit];
-
-        composite_prove(
-            &mut comp_data,
-            &mut temp_stat,
-            &mut temp_wit,
-            &mut temp_wit_size,
-        );
-
-        println!("Composite Verify: ");
-        let mut temp_stat = [stat.clone(), stat];
-        let result = composite_verify(&comp_data, &mut temp_stat);
-        println!("{result:?}");
-    }
-
     // {
-    //     use crate::verify::verify;
-    //
     //     let tail = false;
-    //     let (wit, _proof, stat) = generate_context(30, 5, tail, random_seed());
-
+    //     let (wit, _proof, stat) = generate_context(30, 50, tail, random_seed());
     //     println!("Generated random context");
 
-    //     let (output_stat, output_wit, _proof) = prove(&stat, &wit, tail);
+    //     let mut comp_data = Composite {
+    //         l: 0,
+    //         size: 0.0,
+    //         proof: Vec::new(),
+    //         witness: wit.clone(),
+    //     };
+    //     let mut temp_stat = [stat.clone(), stat.clone()];
+    //     let mut temp_wit_size = [witness_size(&wit), 0_f64];
+    //     let mut temp_wit = [wit.clone(), wit];
 
-    //     println!("\nOutput statement:");
-    //     output_stat.print();
+    //     composite_prove(
+    //         &mut comp_data,
+    //         &mut temp_stat,
+    //         &mut temp_wit,
+    //         &mut temp_wit_size,
+    //     );
 
-    //     print!("Verify: ");
-    //     let result = verify(&output_stat, &stat, &output_wit);
-    //     println!("{result:?}");
+    //     println!("\nComposite Verify: ");
+    //     let mut temp_stat = [stat.clone(), stat];
+    //     let result = composite_verify(&comp_data, &mut temp_stat);
+    //     println!("\nResult: {result:?}");
     // }
+
+    {
+        use crate::verify::verify;
+
+        let tail = false;
+        let dim = 256;
+        let r = 64;
+        let (wit, _proof, stat) = generate_context(r, dim, tail, random_seed());
+
+        println!("Generated random context");
+
+        let (output_stat, output_wit, _proof) = prove(&stat, &wit, tail);
+
+        // println!("\nOutput statement:");
+        // output_stat.print();
+
+        print!("\nVerify: ");
+        let result = verify(&output_stat, &stat, &output_wit);
+        println!("{result:?}");
+    }
 }

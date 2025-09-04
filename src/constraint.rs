@@ -191,8 +191,8 @@ pub fn unpack_challenges(challenges: &[u8]) -> [BaseRingElem; 256] {
         let mut shift: u64 = 1;
         let mut result = limbs[0] as u64;
         for i in 1..PRIME_BYTES_LEN {
-            result += shift * limbs[i] as u64;
-            shift <<= 8;
+            result += (limbs[i] as u64) << shift;
+            shift += 8;
         }
 
         result.into()

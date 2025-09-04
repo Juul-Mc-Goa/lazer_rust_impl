@@ -55,7 +55,9 @@ pub fn witness_size(witness: &Witness) -> f64 {
     let deg_f: f64 = DEGREE as f64;
 
     for i in 0..witness.r {
-        result += (witness.norm_square[i] as f64 / (deg_f * witness.dim[i] as f64)).log2()
+        result += (witness.norm_square[i] as f64 / (deg_f * witness.dim[i] as f64))
+            .log2()
+            .max(0.0)
             * deg_f
             * witness.dim[i] as f64;
     }
@@ -69,21 +71,32 @@ pub fn composite_prove(
     temp_wit: &mut TempWitness,
     temp_wit_size: &mut [f64; 2],
 ) {
-    let mut i: usize = 0;
+    let mut i: usize = 1;
     let mut new_proof: Proof;
+
+    (temp_stat[1], temp_wit[1], new_proof) = prove(&temp_stat[0], &temp_wit[0], false);
+    comp_data.proof.push(new_proof);
+    temp_wit_size[1] = witness_size(&temp_wit[1]);
+    comp_data.l += 1;
+
+    println!("initial proof done");
 
     // iterate until the new proof is bigger than the old one
     // `NoTail` variant is used.
     while comp_data.l < 16 {
         let l = comp_data.l;
-        println!("composite prove {l}");
+        println!("\ncomposite prove {l}");
 
         (temp_stat[i ^ 1], temp_wit[i ^ 1], new_proof) = prove(&temp_stat[i], &temp_wit[i], false);
+        temp_wit[i ^ 1].post_process();
+
         comp_data.proof.push(new_proof);
 
         let proof_size = proof_size(&comp_data.proof[l]);
         temp_wit_size[i ^ 1] = witness_size(&temp_wit[i ^ 1]);
 
+        let new_size = proof_size + temp_wit_size[i ^ 1];
+        println!("new size: {new_size}, old size: {}", temp_wit_size[i]);
         if proof_size + temp_wit_size[i ^ 1] >= temp_wit_size[i] {
             let _ = comp_data.proof.pop();
             break;
@@ -96,11 +109,12 @@ pub fn composite_prove(
 
     // last proof: `Tail` variant is used.
     if comp_data.l < 16 {
-        println!("(last one) composite prove {}", comp_data.l);
-        println!("(last one) temp_stat[{i}] hash: {:?}", temp_stat[i].hash);
+        println!("\n(last proof) composite prove {}", comp_data.l);
         (temp_stat[i ^ 1], temp_wit[i ^ 1], new_proof) = prove(&temp_stat[i], &temp_wit[i], true);
+
         let proof_size = proof_size(&new_proof);
         comp_data.proof.push(new_proof);
+
         temp_wit_size[i ^ 1] = witness_size(&temp_wit[i ^ 1]);
 
         comp_data.size += proof_size;
@@ -312,7 +326,8 @@ pub fn reduce_agg_amortize(output_stat: &mut Statement, proof: &Proof, input_sta
         panic!("aggregate 2: commitment key is CommitKeyData::Tail");
     };
 
-    let mut new_linear_part = RecursedVector::new(input_stat);
+    let mut new_linear_part =
+        RecursedVector::new(&output_stat.commit_params, input_stat.r, input_stat.dim);
 
     let Commitments::NoTail { inner: _, u1, u2 } = &input_stat.commitments else {
         panic!("aggregate 2: commitments in input statement is Commitments::Tail");
@@ -570,23 +585,23 @@ pub fn reduce(proof: &Proof, input_stat: &Statement) -> Statement {
     let mut output_stat: Statement = Statement::new(proof, &input_stat.hash, Some(seed));
 
     reduce_commit(&mut output_stat, proof);
-    println!("(commit) output_stat hash: {:?}", output_stat.hash);
+    println!("(commit) hash: {:?}", output_stat.hash);
     let jl_matrices = reduce_project(
         &mut output_stat,
         proof,
         proof.r,
         input_stat.squared_norm_bound,
     );
-    println!("(project) output_stat hash: {:?}", output_stat.hash);
+    println!("(project) hash: {:?}", output_stat.hash);
 
     for i in 0..U128_LEN {
         let mut constraint = collaps_jl_matrices(&mut output_stat, proof, &jl_matrices);
         reduce_gen_lifting_poly(&mut output_stat, proof, i, &mut constraint);
     }
-    println!("(agg 1) output_stat hash: {:?}", output_stat.hash);
+    println!("(agg 1) hash: {:?}", output_stat.hash);
 
     reduce_agg_amortize(&mut output_stat, proof, input_stat);
-    println!("(amortize) output_stat hash: {:?}", output_stat.hash);
+    println!("(amortize) hash: {:?}", output_stat.hash);
 
     output_stat
 }
@@ -595,10 +610,9 @@ pub fn reduce_tail(proof: &Proof, input_stat: &Statement) -> Statement {
     // copy seed from previous statement
     let seed = input_stat.commit_key.seed.clone();
     let mut output_stat: Statement = Statement::new(proof, &input_stat.hash, Some(seed));
-    println!("(reduce tail) input stat hash: {:?}", input_stat.hash);
 
     reduce_commit_tail(&mut output_stat, proof);
-    println!("(commit tail) output_stat hash: {:?}", output_stat.hash);
+    println!("(commit tail) hash: {:?}", output_stat.hash);
     // `project` does not depend on proof.tail
     let jl_matrices = reduce_project(
         &mut output_stat,
@@ -606,16 +620,16 @@ pub fn reduce_tail(proof: &Proof, input_stat: &Statement) -> Statement {
         proof.r,
         input_stat.squared_norm_bound,
     );
-    println!("(project tail) output_stat hash: {:?}", output_stat.hash);
+    println!("(project tail) hash: {:?}", output_stat.hash);
 
     for i in 0..U128_LEN {
         let mut constraint = collaps_jl_matrices(&mut output_stat, proof, &jl_matrices);
         reduce_gen_lifting_poly(&mut output_stat, proof, i, &mut constraint);
     }
-    println!("(aggregate tail) output_stat hash: {:?}", output_stat.hash);
+    println!("(aggregate tail) hash: {:?}", output_stat.hash);
 
     reduce_amortize_tail(&mut output_stat, proof);
-    println!("(amortize tail) output_stat hash: {:?}", output_stat.hash);
+    println!("(amortize tail) hash: {:?}", output_stat.hash);
 
     output_stat
 }

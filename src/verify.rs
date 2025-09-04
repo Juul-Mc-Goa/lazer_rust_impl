@@ -301,7 +301,6 @@ pub fn verify(output_stat: &Statement, input_stat: &Statement, witness: &Witness
     let quad_size = r * (r + 1) / 2;
     let t_len = unif_len * r * com_rank_1;
     let g_len = quad_len * quad_size;
-    let tgh = witness.vectors[z_len].clone();
 
     if output_stat.tail {
         t = inner.clone();
@@ -310,6 +309,7 @@ pub fn verify(output_stat: &Statement, input_stat: &Statement, witness: &Witness
     } else {
         let _ = check_outer_commits(output_stat, witness)?;
 
+        let tgh = witness.vectors[z_len].clone();
         let (long_t, gh) = tgh.split(t_len);
         let (long_g, long_h) = gh.split(g_len);
 

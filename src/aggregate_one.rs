@@ -39,25 +39,13 @@ pub fn collaps_jl_matrices(
     // build new constraint from challenges and JL matrices
     let mut constant: BaseRingElem = 0.into();
 
-    // let mut split_linear_part: Vec<PolyVec> = vec![PolyVec::zero(output_stat.dim); output_stat.r];
-    // jl_matrices
-    //     .iter()
-    //     .zip(split_linear_part.iter_mut())
-    //     .for_each(|(jl_matrix, lin_part)| {
-    //         let rows = jl_matrix.as_polyvecs_inverted();
-
-    //         rows.iter().zip(challenges).for_each(|(row, challenge)| {
-    //             *lin_part += row * &challenge;
-    //         })
-    //     });
-
     let split_linear_part: Vec<PolyVec> = jl_matrices
         .par_iter()
         .map(|jl_matrix| {
             let rows = jl_matrix.as_polyvecs_inverted();
 
-            rows.par_iter()
-                .zip(challenges.par_iter())
+            rows.iter()
+                .zip(challenges.iter())
                 .map(|(row, challenge)| row * challenge)
                 .sum()
         })

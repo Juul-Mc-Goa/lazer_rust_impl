@@ -105,7 +105,10 @@ impl JLMatrix {
     pub fn as_polyvecs_inverted(&self) -> Vec<PolyVec> {
         let mut result = self.as_polyvecs();
 
-        result.as_mut_slice().into_par_iter().for_each(|v| {
+        // result.as_mut_slice().into_par_iter().for_each(|v| {
+        //     v.invert_x();
+        // });
+        result.as_mut_slice().into_iter().for_each(|v| {
             v.invert_x();
         });
 
