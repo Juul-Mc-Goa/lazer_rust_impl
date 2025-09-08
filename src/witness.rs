@@ -40,7 +40,6 @@ impl Witness {
     }
 
     pub fn print(&self) {
-        println!("Witness:");
         println!("  r: {}", self.r);
         println!("  dim: {:?}", self.dim);
         // println!("  vectors: {:?}", self.vectors);

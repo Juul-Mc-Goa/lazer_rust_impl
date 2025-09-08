@@ -119,39 +119,39 @@ impl Statement {
     }
 
     pub fn print(&self) {
-        println!("r: {}", self.r);
-        println!("dim: {}", self.dim);
-        println!("dim_inner: {}", self.dim_inner);
-        println!("tail: {}", self.tail);
+        println!("  r: {}", self.r);
+        println!("  dim: {}", self.dim);
+        println!("  dim_inner: {}", self.dim_inner);
+        println!("  tail: {}", self.tail);
 
-        println!("commit_params:");
-        println!("  z_base: {}", self.commit_params.z_base);
-        println!("  z_length: {}", self.commit_params.z_length);
-        println!("  uniform_base: {}", self.commit_params.uniform_base);
-        println!("  uniform_length: {}", self.commit_params.uniform_length);
-        println!("  quad_base: {}", self.commit_params.quadratic_base);
-        println!("  quad_length: {}", self.commit_params.quadratic_length);
-        println!("  commit_rank_1: {}", self.commit_params.commit_rank_1);
-        println!("  commit_rank_2: {}", self.commit_params.commit_rank_2);
-        println!("  u1_len: {}", self.commit_params.u1_len);
-        println!("  u2_len: {}", self.commit_params.u2_len);
+        println!("  commit_params:");
+        println!("    z_base: {}", self.commit_params.z_base);
+        println!("    z_length: {}", self.commit_params.z_length);
+        println!("    uniform_base: {}", self.commit_params.uniform_base);
+        println!("    uniform_length: {}", self.commit_params.uniform_length);
+        println!("    quad_base: {}", self.commit_params.quadratic_base);
+        println!("    quad_length: {}", self.commit_params.quadratic_length);
+        println!("    commit_rank_1: {}", self.commit_params.commit_rank_1);
+        println!("    commit_rank_2: {}", self.commit_params.commit_rank_2);
+        println!("    u1_len: {}", self.commit_params.u1_len);
+        println!("    u2_len: {}", self.commit_params.u2_len);
 
-        println!("commitments: elided");
-        println!("challenges:");
+        println!("  commitments: elided");
+        println!("  challenges:");
         for challenge in self.challenges.iter() {
-            println!("  {:?}", challenge);
+            println!("    {:?}", challenge);
         }
         println!(
-            "constraint: elided (non-zero quad coefs: {}, size of linear part: {})",
+            "  constraint: elided (non-zero quad coefs: {}, size of linear part: {})",
             self.constraint.quadratic_part.0.len(),
             self.constraint.linear_part.0.len(),
         );
         println!(
-            "squared_norm_bound: {}, (ie around 2^{})",
+            "  squared_norm_bound: {}, (ie around 2^{})",
             self.squared_norm_bound,
             self.squared_norm_bound.ilog2()
         );
-        println!("hash: {:?}", self.hash);
-        println!("commit key: \n{:?}", self.commit_key);
+        println!("  hash: {:?}", self.hash);
+        println!("  commit key:\n{:?}", self.commit_key);
     }
 }
