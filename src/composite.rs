@@ -81,6 +81,12 @@ pub fn composite_prove(
 
     println!("initial proof done");
 
+    println!("Statement 1:",);
+    temp_stat[1].print();
+
+    println!("Witness 1:",);
+    temp_wit[1].print();
+
     // iterate until the new proof is bigger than the old one
     // `NoTail` variant is used.
     while comp_data.l < 16 {

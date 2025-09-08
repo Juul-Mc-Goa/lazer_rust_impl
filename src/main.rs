@@ -210,51 +210,48 @@ pub fn prove(statement: &Statement, witness: &Witness, tail: bool) -> (Statement
 }
 
 fn main() {
-    // {
-    //     let tail = false;
-    //     let (wit, _proof, stat) = generate_context(30, 50, tail, random_seed());
-    //     println!("Generated random context");
-
-    //     let mut comp_data = Composite {
-    //         l: 0,
-    //         size: 0.0,
-    //         proof: Vec::new(),
-    //         witness: wit.clone(),
-    //     };
-    //     let mut temp_stat = [stat.clone(), stat.clone()];
-    //     let mut temp_wit_size = [witness_size(&wit), 0_f64];
-    //     let mut temp_wit = [wit.clone(), wit];
-
-    //     composite_prove(
-    //         &mut comp_data,
-    //         &mut temp_stat,
-    //         &mut temp_wit,
-    //         &mut temp_wit_size,
-    //     );
-
-    //     println!("\nComposite Verify: ");
-    //     let mut temp_stat = [stat.clone(), stat];
-    //     let result = composite_verify(&comp_data, &mut temp_stat);
-    //     println!("\nResult: {result:?}");
-    // }
-
     {
-        use crate::verify::verify;
-
         let tail = false;
-        let dim = 256;
-        let r = 64;
-        let (wit, _proof, stat) = generate_context(r, dim, tail, random_seed());
-
+        let (wit, _proof, stat) = generate_context(30, 50, tail, random_seed());
         println!("Generated random context");
 
-        let (output_stat, output_wit, _proof) = prove(&stat, &wit, tail);
+        let mut comp_data = Composite {
+            l: 0,
+            size: 0.0,
+            proof: Vec::new(),
+            witness: wit.clone(),
+        };
+        let mut temp_stat = [stat.clone(), stat.clone()];
+        let mut temp_wit_size = [witness_size(&wit), 0_f64];
+        let mut temp_wit = [wit.clone(), wit];
 
-        // println!("\nOutput statement:");
-        // output_stat.print();
+        composite_prove(
+            &mut comp_data,
+            &mut temp_stat,
+            &mut temp_wit,
+            &mut temp_wit_size,
+        );
 
-        print!("\nVerify: ");
-        let result = verify(&output_stat, &stat, &output_wit);
-        println!("{result:?}");
+        println!("\nComposite Verify: ");
+        let mut temp_stat = [stat.clone(), stat];
+        let result = composite_verify(&comp_data, &mut temp_stat);
+        println!("\nResult: {result:?}");
     }
+
+    // {
+    //     use crate::verify::verify;
+
+    //     let tail = false;
+    //     let dim = 128;
+    //     let r = 32;
+    //     let (wit, _proof, stat) = generate_context(r, dim, tail, random_seed());
+
+    //     println!("Generated random context");
+
+    //     let (output_stat, output_wit, _proof) = prove(&stat, &wit, tail);
+
+    //     print!("\nVerify: ");
+    //     let result = verify(&output_stat, &stat, &output_wit);
+    //     println!("{result:?}");
+    // }
 }
