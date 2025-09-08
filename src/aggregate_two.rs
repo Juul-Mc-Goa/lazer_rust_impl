@@ -478,21 +478,20 @@ pub fn amortize_aggregate(
     let c_g: PolyRingElem = PolyRingElem::challenge(&mut rng);
     let c_agg: PolyRingElem = PolyRingElem::challenge(&mut rng);
 
-    let CommitKeyData::NoTail {
-        matrix_a,
-        matrices_b,
-        matrices_c,
-        matrices_d,
-    } = &commit_key.data
-    else {
-        panic!("aggregate 2: commitment key is CommitKeyData::Tail");
-    };
+    let matrix_a = commit_key.data.matrix_a();
+    let matrices_b = commit_key.data.matrices_b();
+    let matrices_c = commit_key.data.matrices_c();
+    let matrices_d = commit_key
+        .data
+        .matrices_d()
+        .expect("amortize_aggregate: commit_key.data should be NoTail.");
 
     let mut new_linear_part = RecursedVector::new(com_params, input_stat.r, input_stat.dim);
 
-    let Commitments::NoTail { inner: _, u1, u2 } = &input_stat.commitments else {
-        panic!("aggregate 2: commitments in input statement is Commitments::Tail");
-    };
+    let (u1, u2) = input_stat
+        .commitments
+        .outer()
+        .expect("amortize_aggregate: input_stat.commitments should be NoTail");
 
     // handle u1:
     new_linear_part.add_u1_constraint(&c_1, matrices_b, matrices_c, &com_params, input_stat);

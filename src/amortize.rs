@@ -80,23 +80,17 @@ pub fn amortize_tail(
         phi_acc.add_mul_assign(&challenges[i], &phi_i);
     }
 
-    let Commitments::Tail {
-        inner: _,
-        ref mut garbage,
-    } = output_stat.commitments
-    else {
-        panic!("amortize tail: output_stat.commitments is NoTail");
-    };
+    let garbage = output_stat
+        .commitments
+        .garbage_mut()
+        .expect("amortize_tail: output_stat.commitments should be Tail");
 
     garbage.0.append(&mut h);
 
-    let Commitments::Tail {
-        inner: _,
-        garbage: proof_garbage,
-    } = &mut proof.commitments
-    else {
-        panic!("amortize_tail(): proof.commitments should be Tail.");
-    };
+    let proof_garbage = proof
+        .commitments
+        .garbage_mut()
+        .expect("amortize_tail: proof.commitments should be Tail");
 
     *proof_garbage = garbage.clone();
 
@@ -166,14 +160,11 @@ pub fn amortize(
         output_stat.commit_params.commit_rank_2,
     );
 
-    let Commitments::NoTail {
-        inner: _,
-        u1: _,
-        u2,
-    } = &mut output_stat.commitments
-    else {
-        panic!("wrong `Tail` variant for output statement's commitments");
-    };
+    let (_, u2) = &mut output_stat
+        .commitments
+        .outer()
+        .1
+        .expect("amortize: output_stat should be `NoTail`");
 
     let (challenges, constraint) = (&input_stat.challenges, &input_stat.constraint);
 
@@ -198,19 +189,7 @@ pub fn amortize(
     // decompose and concatenate linear garbage
     let mut h = PolyVec::join(&h.decomp(unif_base, unif_len));
 
-    let CommitKey {
-        data:
-            CommitKeyData::NoTail {
-                matrix_a: _,
-                matrices_b: _,
-                matrices_c: _,
-                matrices_d,
-            },
-        seed: _,
-    } = commit_key
-    else {
-        panic!("amortize: commit key is `Tail`")
-    };
+    let matrices_d = commit_key.data.matrices_d().unwrap();
 
     // compute u2
     *u2 = PolyVec::zero(com_rank_2);
