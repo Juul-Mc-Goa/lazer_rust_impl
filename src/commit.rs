@@ -214,6 +214,7 @@ impl CommitKey {
         let mut rng = ChaCha8Rng::from_seed(seed);
 
         let matrix_a: PolyMatrix = PolyMatrix::random(&mut rng, com_params.commit_rank_1, dim);
+
         let matrices_b: Vec<Vec<PolyMatrix>> = (0..com_params.uniform_length)
             .map(|_| {
                 (0..r)
@@ -227,6 +228,7 @@ impl CommitKey {
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
+
         let matrices_c: Vec<Vec<PolyMatrix>> = (0..com_params.quadratic_length)
             .map(|_k| {
                 (0..r)

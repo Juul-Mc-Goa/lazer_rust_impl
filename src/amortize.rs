@@ -160,11 +160,11 @@ pub fn amortize(
         output_stat.commit_params.commit_rank_2,
     );
 
-    let (_, u2) = &mut output_stat
+    let u2 = output_stat
         .commitments
-        .outer()
-        .1
-        .expect("amortize: output_stat should be `NoTail`");
+        .outer_mut()
+        .expect("amortize: output_stat should be `NoTail`")
+        .1;
 
     let (challenges, constraint) = (&input_stat.challenges, &input_stat.constraint);
 

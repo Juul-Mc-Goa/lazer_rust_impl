@@ -85,6 +85,7 @@ pub fn composite_prove(
     temp_stat[1].print();
 
     println!("Witness 1:",);
+    temp_wit[1].post_process();
     temp_wit[1].print();
 
     // iterate until the new proof is bigger than the old one
@@ -280,6 +281,7 @@ pub fn reduce_gen_lifting_poly(
 }
 
 pub fn reduce_agg_amortize(output_stat: &mut Statement, proof: &Proof, input_stat: &Statement) {
+    // TODO: reduce build_z_h (update output_stat.hash)
     let mut hashbuf = [0_u8; 32];
     hashbuf[..16].copy_from_slice(&output_stat.hash);
     let mut rng = ChaCha8Rng::from_seed(hashbuf);
