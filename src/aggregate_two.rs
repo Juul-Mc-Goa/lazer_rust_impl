@@ -1,7 +1,3 @@
-// TODO: aggregate all zero constraints to a single one
-
-use std::ops::Add;
-
 use rand::prelude::*;
 use rand_chacha::ChaCha8Rng;
 use sha3::{
@@ -10,14 +6,11 @@ use sha3::{
 };
 
 use crate::{
-    amortize::amortize_tail,
-    commit::{CommitKey, CommitKeyData, CommitParams, Commitments},
-    linear_algebra::{PolyMatrix, PolyVec, SparsePolyMatrix},
+    commit::CommitParams,
+    linear_algebra::{PolyMatrix, PolyVec},
     proof::Proof,
     ring::{BaseRingElem, PolyRingElem},
     statement::Statement,
-    utils::add_apply_matrices_garbage,
-    witness::Witness,
 };
 
 /// A structure used to a recursed witness `decomp(z) || decomp(t) || decomp(g)
@@ -277,7 +270,7 @@ impl RecursedVector {
     }
 }
 
-pub fn aggregate_two(output_stat: &mut Statement, proof: &mut Proof, input_stat: &Statement) {
+pub fn aggregate_two(output_stat: &mut Statement, proof: &Proof, input_stat: &Statement) {
     // update output_stat: set
     // witness <- decomp(z) || decomp(t) || decomp(g) || decomp(h)
     // and modify output_stat.constraint accordingly
@@ -317,11 +310,12 @@ pub fn aggregate_two(output_stat: &mut Statement, proof: &mut Proof, input_stat:
     // build z part
     let (input_r, com_params) = (input_stat.r, &input_stat.commit_params);
 
-    let commit_key = &output_stat.commit_key;
+    // let commit_key = &output_stat.commit_key;
+    let commit_key = &input_stat.commit_key;
 
     let (com_rank_1, com_rank_2) = (
-        output_stat.commit_params.commit_rank_1,
-        output_stat.commit_params.commit_rank_2,
+        input_stat.commit_params.commit_rank_1,
+        input_stat.commit_params.commit_rank_2,
     );
 
     // generate new challenges for aggregation
@@ -341,29 +335,29 @@ pub fn aggregate_two(output_stat: &mut Statement, proof: &mut Proof, input_stat:
     let c_g: PolyRingElem = PolyRingElem::challenge(&mut rng);
     let c_agg: PolyRingElem = PolyRingElem::challenge(&mut rng);
 
-    let CommitKeyData::NoTail {
-        matrix_a,
-        matrices_b,
-        matrices_c,
-        matrices_d,
-    } = &commit_key.data
-    else {
-        panic!("aggregate 2: commitment key is CommitKeyData::Tail");
-    };
+    let (matrix_a, matrices_b, matrices_c) = (
+        commit_key.data.matrix_a(),
+        commit_key.data.matrices_b(),
+        commit_key.data.matrices_c(),
+    );
 
     let mut new_linear_part = RecursedVector::new(com_params, input_stat.r, input_stat.dim);
 
-    let Commitments::NoTail { inner: _, u1, u2 } = &input_stat.commitments else {
-        panic!("aggregate 2: commitments in input statement is Commitments::Tail");
-    };
+    let (u1, u2) = input_stat
+        .commitments
+        .outer()
+        .expect("aggregate 2: commitments in input statement should be `NoTail`");
 
-    // handle u1:
-    new_linear_part.add_u1_constraint(&c_1, matrices_b, matrices_c, &com_params, input_r);
-    output_stat.constraint.constant = -c_1.scalar_prod(u1);
+    if !proof.tail {
+        // // handle u1:
+        new_linear_part.add_u1_constraint(&c_1, matrices_b, matrices_c, &com_params, input_r);
+        output_stat.constraint.constant = -c_1.scalar_prod(u1);
 
-    // handle u2:
-    new_linear_part.add_u2_constraint(&c_2, matrices_d, &com_params, input_r);
-    output_stat.constraint.constant -= c_2.scalar_prod(u2);
+        // handle u2:
+        let matrices_d = commit_key.data.matrices_d().unwrap();
+        new_linear_part.add_u2_constraint(&c_2, matrices_d, &com_params, input_r);
+        output_stat.constraint.constant -= c_2.scalar_prod(u2);
+    }
 
     // handle z:
     new_linear_part.add_inner_constraint(&c_z, matrix_a, input_stat);

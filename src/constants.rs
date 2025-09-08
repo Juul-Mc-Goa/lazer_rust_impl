@@ -1,9 +1,9 @@
 use concrete_ntt::prime64::Plan;
 
 pub const LOG_PRIME: u64 = 40;
+pub const OFFSET: u64 = 4479;
 /// The prime number `p` defining `A_p = Z / pZ`.
-// pub const PRIME: u64 = (1 << 40) - 195;
-pub const PRIME: u64 = (1 << 40) - 4479;
+pub const PRIME: u64 = (1 << LOG_PRIME) - OFFSET;
 /// The inverse of `2` modulo `p`.
 pub const ONE_HALF_MOD_PRIME: u64 = (PRIME + 1) >> 1;
 
@@ -12,6 +12,7 @@ pub const U128_LEN: usize = 128_usize.div_ceil(LOG_PRIME as usize);
 
 /// the degree `d` defining `R_p = A_p[X] / (X^d + 1)`.
 pub const DEGREE: u64 = 64;
+pub const DEGREE_SIZE: usize = DEGREE as usize;
 
 #[allow(dead_code)]
 pub const JL_MAX_NORM: u64 = 1 << 28;

@@ -69,7 +69,7 @@ fn generate_context(r: usize, dim: usize, tail: bool, seed: Seed) -> (Witness, P
         // let new_s = PolyVec::random(dim, &mut rng);
         let new_s = PolyVec(
             (0..dim)
-                .map(|_| PolyRingElem::challenge(&mut rng))
+                .map(|_| PolyRingElem::challenge(&mut rng) * ring::BaseRingElem::from(3))
                 .collect(),
         );
 
@@ -88,29 +88,29 @@ fn generate_context(r: usize, dim: usize, tail: bool, seed: Seed) -> (Witness, P
         vectors: wit_vectors,
     };
 
-    let proof = Proof::new(witness.clone(), 1, tail);
+    let proof = Proof::new(&witness, 1, tail);
 
     let mut constant = PolyRingElem::zero();
 
     // build random quadratic part
     let mut quadratic_part = SparsePolyMatrix::new();
-    let non_zero_len = 3;
+    // let non_zero_len = 3;
 
-    let mut left = (0..r).collect::<Vec<_>>();
-    left.shuffle(&mut rng);
-    left.resize(non_zero_len, 0);
+    // let mut left = (0..r).collect::<Vec<_>>();
+    // left.shuffle(&mut rng);
+    // left.resize(non_zero_len, 0);
 
-    let mut right = (0..r).collect::<Vec<_>>();
-    right.shuffle(&mut rng);
-    right.resize(non_zero_len, 0);
+    // let mut right = (0..r).collect::<Vec<_>>();
+    // right.shuffle(&mut rng);
+    // right.resize(non_zero_len, 0);
 
-    for (l, r) in left.into_iter().zip(right.into_iter()) {
-        let coef = PolyRingElem::random(&mut rng);
-        constant += &coef * witness.vectors[l].scalar_prod(&witness.vectors[r]);
-        let i = l.max(r);
-        let j = l.min(r);
-        quadratic_part.0.push((i, j, coef));
-    }
+    // for (l, r) in left.into_iter().zip(right.into_iter()) {
+    //     let coef = PolyRingElem::random(&mut rng);
+    //     constant += &coef * witness.vectors[l].scalar_prod(&witness.vectors[r]);
+    //     let i = l.max(r);
+    //     let j = l.min(r);
+    //     quadratic_part.0.push((i, j, coef));
+    // }
 
     // build random linear part
     //       random challenges
@@ -155,7 +155,7 @@ fn generate_context(r: usize, dim: usize, tail: bool, seed: Seed) -> (Witness, P
 }
 
 pub fn prove(statement: &Statement, witness: &Witness, tail: bool) -> (Statement, Witness, Proof) {
-    let mut proof = Proof::new(witness.clone(), 1, tail);
+    let mut proof = Proof::new(&witness, 1, tail);
     let mut output_stat = Statement::new(
         &proof,
         &statement.hash,
@@ -164,14 +164,12 @@ pub fn prove(statement: &Statement, witness: &Witness, tail: bool) -> (Statement
     let mut output_wit = Witness::new(&output_stat);
 
     let now = Instant::now();
-    commit(&mut output_stat, &mut output_wit, &mut proof, &witness);
+    let packed_wit = commit(&mut output_stat, &mut output_wit, &mut proof, &witness);
     println!(
         "Committed ({} sec), hash: {:?}",
         now.elapsed().as_secs_f32(),
         output_stat.hash
     );
-
-    let packed_wit = proof.pack_witness(&witness);
 
     let now = Instant::now();
 
@@ -185,7 +183,7 @@ pub fn prove(statement: &Statement, witness: &Witness, tail: bool) -> (Statement
 
     let now = Instant::now();
 
-    aggregate_constant_coeff(&mut output_stat, &mut proof, &witness, &jl_matrices);
+    aggregate_constant_coeff(&mut output_stat, &mut proof, &packed_wit, &jl_matrices);
     println!(
         "Aggregated 1 ({} sec), hash: {:?}",
         now.elapsed().as_secs_f32(),
@@ -193,13 +191,6 @@ pub fn prove(statement: &Statement, witness: &Witness, tail: bool) -> (Statement
     );
 
     let now = Instant::now();
-    // amortize_aggregate(
-    //     &mut output_stat,
-    //     &mut output_wit,
-    //     &mut proof,
-    //     &packed_wit,
-    //     &statement,
-    // );
     aggregate_two(&mut output_stat, &mut proof, &statement);
     println!(
         "Aggregated 2 ({} sec), hash: {:?}",
@@ -222,17 +213,26 @@ fn main() {
     // {
     //     use crate::composite::{Composite, composite_prove, composite_verify, witness_size};
     //     let tail = false;
-    //     let (wit, _proof, stat) = generate_context(30, 50, tail, random_seed());
+    //     let (wit, _proof, stat) = generate_context(10, 50, tail, random_seed());
     //     println!("Generated random context");
+    //     println!("witness:",);
+    //     wit.print();
+
+    //     let (new_stat, new_wit, _proof) = prove(&stat, &wit, false);
 
     //     let mut comp_data = Composite {
     //         l: 0,
     //         size: 0.0,
     //         proof: Vec::new(),
-    //         witness: wit.clone(),
+    //         witness: new_wit.clone(),
     //     };
-    //     let mut temp_stat = [stat.clone(), stat.clone()];
+
+    //     let mut temp_stat = [new_stat.clone(), new_stat.clone()];
+    //     let mut verify_temp_stat = temp_stat.clone();
+
     //     let mut temp_wit_size = [witness_size(&wit), 0_f64];
+    //     println!("temp_wit_size: {temp_wit_size:?}",);
+
     //     let mut temp_wit = [wit.clone(), wit];
 
     //     composite_prove(
@@ -243,8 +243,7 @@ fn main() {
     //     );
 
     //     println!("\nComposite Verify: ");
-    //     let mut temp_stat = [stat.clone(), stat];
-    //     let result = composite_verify(&comp_data, &mut temp_stat);
+    //     let result = composite_verify(&comp_data, &mut verify_temp_stat);
     //     println!("\nResult: {result:?}");
     // }
 
@@ -255,10 +254,12 @@ fn main() {
         let dim = 128;
         let r = 16;
         let (wit, _proof, stat) = generate_context(r, dim, tail, random_seed());
+        let (output_stat, output_wit, _proof) = prove(&stat, &wit, tail);
 
         println!("Generated random context");
 
-        let (output_stat, output_wit, _proof) = prove(&stat, &wit, tail);
+        println!("Witness:");
+        output_wit.print();
 
         println!("\nOutput statement:");
         output_stat.print();

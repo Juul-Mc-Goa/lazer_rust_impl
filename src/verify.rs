@@ -2,7 +2,7 @@
 
 use crate::{
     Statement,
-    commit::{CommitKeyData, CommitParams},
+    commit::CommitParams,
     linear_algebra::{PolyMatrix, PolyVec, SparsePolyMatrix},
     ring::{BaseRingElem, PolyRingElem},
     utils::{add_apply_matrices_b, add_apply_matrices_garbage, split_tgh},
@@ -77,18 +77,18 @@ fn unwrap_no_tail<'a>(outer_opt: Option<(&'a PolyVec, &'a PolyVec)>) -> (&'a Pol
 }
 
 /// Checks that:
-/// * `u1 = matrices_b * t + matrices_c * g`
-/// * `u2 = matrices_d * h`
+/// * `u1 = matrices_b * t + matrices_c * g`,
+/// * `u2 = matrices_d * h`.
+///
+/// This should be called only when the proof is not `Tail`.
 fn check_outer_commits(statement: &Statement, witness: &Witness) -> VerifyResult {
-    let CommitKeyData::NoTail {
-        matrix_a: _,
-        matrices_b,
-        matrices_c,
-        matrices_d,
-    } = &statement.commit_key.data
-    else {
-        panic!("verify: expected `CommitKeyData::NoTail`");
-    };
+    let matrices_b = statement.commit_key.data.matrices_b();
+    let matrices_c = statement.commit_key.data.matrices_c();
+    let matrices_d = statement
+        .commit_key
+        .data
+        .matrices_d()
+        .expect("verify: commit_key should be `NoTail`");
     let r = statement.r;
     let CommitParams {
         z_base: _,
@@ -303,10 +303,7 @@ pub fn verify(statement: &Statement, witness: &Witness) -> VerifyResult {
         h = long_h.recompose(unif_base as u64, unif_len);
     }
 
-    let matrix_a: &PolyMatrix = match &statement.commit_key.data {
-        CommitKeyData::NoTail { matrix_a, .. } => &matrix_a,
-        CommitKeyData::Tail { matrix_a, .. } => &matrix_a,
-    };
+    let matrix_a = statement.commit_key.data.matrix_a();
 
     check_inner_commit(com_rank_1, challenges, &matrix_a, &z, t)?;
 
@@ -329,8 +326,6 @@ pub fn verify(statement: &Statement, witness: &Witness) -> VerifyResult {
     )?;
 
     check_principle(statement.tail, r, &g, &h, quadratic_part, constant)?;
-
-    // check quadratic relation from output_stat on output_wit ?
 
     Ok(())
 }

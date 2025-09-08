@@ -19,7 +19,6 @@ pub struct PolyMatrix(pub Vec<Vec<PolyRingElem>>);
 
 /// Sparse matrix with polynomial coefficients: a vector of
 /// `(row_index, column_index, coef)`.
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct SparsePolyMatrix(pub Vec<(usize, usize, PolyRingElem)>);
 
@@ -458,9 +457,9 @@ impl SparsePolyMatrix {
         result
     }
 
-    pub fn add_mul_assign(&mut self, coef: &PolyRingElem) {
-        *self = &*self * &(PolyRingElem::one() + coef);
-    }
+    // pub fn add_mul_assign(&mut self, coef: &PolyRingElem) {
+    //     *self = &*self * &(PolyRingElem::one() + coef);
+    // }
 }
 
 impl Mul<&PolyRingElem> for &SparsePolyMatrix {

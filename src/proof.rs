@@ -34,12 +34,21 @@ pub struct Proof {
 /// Check that `norm` is small enough for the current global parameters and a
 /// lattice of rank `rank`.
 pub fn sis_secure(rank: usize, norm: f64) -> bool {
-    let mut maxlog: f64 = 2.0 * (*LOG_DELTA * (LOG_PRIME * DEGREE * (rank as u64)) as f64).sqrt();
+    let rank = rank as u64;
+    let mut maxlog: f64 = 2.0 * (*LOG_DELTA * (LOG_PRIME * DEGREE * rank) as f64).sqrt();
     maxlog = maxlog.min(LOG_PRIME as f64);
 
     norm.log2() < maxlog
 }
 
+/// Split `z`, compute its decomposition base and length.
+///
+/// Return
+/// - `split_dim`: the new dimension after splitting
+/// - `z_length`: decomposition length
+/// - `z_base`: decomposition base
+/// - `r`: new rank after splitting
+/// - `var_z`: variance of each coordinate in `z`
 fn z_decompose(
     k: usize,
     is_tail: bool,
@@ -62,14 +71,22 @@ fn z_decompose(
     let var_challenges = TAU1 + 4 * TAU2;
     var_z *= var_challenges;
 
-    let mut decompose: bool = !is_tail
-        && !sis_secure(
-            13,
-            6.0 * CHALLENGE_NORM as f64
-                * *SLACK
-                * (2.0 * var_challenges as f64 * var_z as f64 * split_dim as f64 * DEGREE as f64)
-                    .sqrt(),
-        );
+    let mut decompose: bool = {
+        let challenge_norm = CHALLENGE_NORM as f64;
+        let var_challenges = var_challenges as f64;
+        let var_z = var_z as f64;
+        let split_dim = split_dim as f64;
+        let degree = DEGREE as f64;
+
+        !is_tail
+            && !sis_secure(
+                13,
+                6.0 * challenge_norm
+                    * *SLACK
+                    * (2.0 * var_challenges * var_z * split_dim * degree).sqrt(),
+            )
+    };
+
     // decompose if average squared coefficient is greater than JL_MAX_NORM
     decompose |= DEGREE as u128 * var_z > (1 << 28);
 
@@ -86,6 +103,8 @@ fn z_decompose(
     }
 }
 
+/// Compute `quadratic_length` and `var_g` (the variance of each coordinate in
+/// `quad_garbage`).
 fn quad_length_varg(
     is_tail: bool,
     r: usize,
@@ -146,6 +165,8 @@ fn quad_length_varg(
     }
 }
 
+/// Try each possibility for `commit_rank_1`, return it and the total norm
+/// if this possibility is correct (i.e. the total norm is SIS-secure).
 fn commit_rank_1_total_norm(
     is_tail: bool,
     quadratic: u8,
@@ -168,34 +189,35 @@ fn commit_rank_1_total_norm(
     let mut commit_rank_1: usize = 0;
     let mut total_norm_square: u128 = 0;
 
-    // variance of a vector with `length` coordinates, each uniform in
+    // variance of a vector with `length - 1` coordinates, each uniform in
     // 0..2^base
     let var_decomp = |base: u128, length: u128| ((length - 1) << 2 * base) / 12;
     // variance of the highest digit
     let var_highest = |base: u128, length: u128, var: u128| var >> (base * (length - 1));
 
+    let var_z_part =
+        (var_decomp(z_base, z_len) + var_highest(z_base, z_len, varz)) * split_dim as u128;
+
     while commit_rank_1 <= 32 {
         commit_rank_1 += 1;
 
-        let t_rank = new_r * commit_rank_1;
-
-        total_norm_square =
-            (var_decomp(z_base, z_len) + var_highest(z_base, z_len, varz)) * split_dim as u128;
+        total_norm_square = var_z_part * split_dim as u128;
 
         if !is_tail {
-            // garbage contribution: linear coefs
-            let shr_amount: u32 = 2 * (unif_base * (unif_len - 1)) as u32;
-            total_norm_square += (var_decomp(unif_base, unif_len)
-                + (1_u128 << 2 * LOG_PRIME as u128).unbounded_shr(shr_amount))
-                / 12
-                * (t_rank + quad_rank) as u128;
-        }
+            let t_rank = new_r * commit_rank_1;
+            let var_unif_low = var_decomp(unif_base, unif_len);
+            let var_unif_high = (1_u128 << 2 * LOG_PRIME as u128)
+                .unbounded_shr(2 * (unif_base * (unif_len - 1)) as u32)
+                / 12;
 
-        if !is_tail && quadratic != 0 {
-            // quadratic contribution: quadratic coefs
-            total_norm_square += (var_decomp(quad_base, quad_len)
-                + var_highest(quad_base, quad_len, varg))
-                * quad_rank as u128;
+            total_norm_square += (var_unif_low + var_unif_high) * (t_rank + quad_rank) as u128;
+
+            if quadratic != 0 {
+                let var_quad_low = var_decomp(quad_base, quad_len);
+                let var_quad_high = var_highest(quad_base, quad_len, varg);
+
+                total_norm_square += (var_quad_low + var_quad_high) * quad_rank as u128;
+            }
         }
 
         total_norm_square *= DEGREE as u128;
@@ -215,11 +237,12 @@ fn commit_rank_1_total_norm(
     (commit_rank_1, total_norm_square)
 }
 
+/// Compute `commit_rank_2, u1_len, u2_len`.
 fn commit_2_u1_u2(
     is_tail: bool,
     quadratic: u8,
     new_r: usize,
-    total_sqrt: f64,
+    total_norm: f64,
     varz: u128,
     split_dim: usize,
     commit_rank_1: usize,
@@ -234,7 +257,7 @@ fn commit_2_u1_u2(
         // compute commit_rank_2
         while commit_rank_2 <= 32 {
             commit_rank_2 += 1;
-            if sis_secure(commit_rank_2, 2.0 * *SLACK * total_sqrt) {
+            if sis_secure(commit_rank_2, 2.0 * *SLACK * total_norm) {
                 break;
             }
         }
@@ -280,14 +303,11 @@ fn commit_2_u1_u2(
 
 #[allow(dead_code)]
 impl Proof {
-    pub fn new(witness: Witness, quadratic: u8, is_tail: bool) -> Self {
-        // compute the number of vectors in the modified witness
-        let r = if quadratic == 2 {
-            2 * witness.r + 1
-        } else {
-            witness.r
-        };
-
+    fn init_dim_norm_chunks(
+        quadratic: u8,
+        r: usize,
+        witness: &Witness,
+    ) -> (Vec<usize>, Vec<u128>, Vec<usize>) {
         let mut dim = vec![0_usize; r]; // dimension of each vector (before splitting)
         // vectors will be split into `dim.div_ceil(chunks[i])` vectors of rank `chunks[i]`.
         let mut chunks = vec![0_usize; r];
@@ -317,6 +337,20 @@ impl Proof {
                 chunks[r - 1] = 1;
             }
         }
+
+        (dim, norm_square, chunks)
+    }
+
+    pub fn new(witness: &Witness, quadratic: u8, is_tail: bool) -> Self {
+        // compute the number of vectors in the modified witness
+        let r = if quadratic == 2 {
+            2 * witness.r + 1
+        } else {
+            witness.r
+        };
+
+        // initialize a few vectors
+        let (dim, norm_square, mut chunks) = Self::init_dim_norm_chunks(quadratic, r, witness);
 
         // compute global variables used in the for loop
         let mut dim_acc = 0; // current dimension of joined vectors
@@ -351,7 +385,7 @@ impl Proof {
         let mut commit_rank_2: usize = 0;
 
         let mut total_norm_square: u128 = 0;
-        let mut total_sqrt: f64;
+        let mut total_norm: f64;
 
         let mut u1_len: usize = 0;
         let mut u2_len: usize = 0;
@@ -368,8 +402,6 @@ impl Proof {
             );
 
             if !is_tail {
-                // uniform_length = (LOG_PRIME as usize + 2 * z_base / 3) / z_base;
-                // uniform_base = (LOG_PRIME as usize + z_length / 2) / uniform_length;
                 uniform_length = (LOG_PRIME as usize).div_ceil(z_base);
                 uniform_base = (LOG_PRIME as usize).div_ceil(uniform_length);
             } else {
@@ -406,7 +438,7 @@ impl Proof {
                 new_r,
             );
 
-            total_sqrt = (total_norm_square as f64).sqrt();
+            total_norm = (total_norm_square as f64).sqrt();
 
             // compute the last params: commitment rank 2, length of vectors u1 and u2
             let good_params: bool;
@@ -414,7 +446,7 @@ impl Proof {
                 is_tail,
                 quadratic,
                 new_r,
-                total_sqrt,
+                total_norm,
                 varz,
                 split_dim,
                 commit_rank_1,
@@ -463,7 +495,7 @@ impl Proof {
         }
     }
 
-    /// Split `witness` according to `self.split_dim`
+    /// Split `witness` according to `self.split_dim`.
     pub fn pack_witness(&self, witness: &Witness) -> Witness {
         assert_eq!(
             self.chunks.len(),
@@ -475,14 +507,21 @@ impl Proof {
         let mut new_vec: Vec<PolyVec> = Vec::new();
         let mut norm_square: Vec<u128> = Vec::new();
 
-        for (w, chunk) in witness.vectors.iter().zip(self.chunks.iter()) {
-            let split_dim = w.0.len().div_ceil(*chunk);
-            for new_w in w.clone().into_chunks(split_dim) {
-                norm_square.push(new_w.norm_square());
-                new_vec.push(new_w);
-                r += 1;
-            }
-        }
+        witness
+            .vectors
+            .iter()
+            .zip(self.chunks.iter())
+            .for_each(|(w, chunk)| {
+                let split_dim = w.0.len().div_ceil(*chunk);
+                w.clone()
+                    .into_chunks(split_dim)
+                    .into_iter()
+                    .for_each(|new_w| {
+                        norm_square.push(new_w.norm_square());
+                        new_vec.push(new_w);
+                        r += 1;
+                    });
+            });
 
         Witness {
             r,
@@ -490,5 +529,18 @@ impl Proof {
             norm_square,
             vectors: new_vec,
         }
+    }
+
+    #[allow(dead_code)]
+    pub fn print(&self) {
+        println!("r: {}", self.r);
+        println!("dim: {:?}", self.dim);
+        println!("split_dim: {:?}", self.split_dim);
+        println!("chunks: {:?}", self.chunks);
+        println!("tail: {:?}", self.tail);
+        println!("commit_params: {:?}", self.commit_params);
+        println!("jl_nonce: {:?}", self.jl_nonce);
+        println!("projection: {:?}", self.projection);
+        println!("norm_square: {:?}", self.norm_square);
     }
 }

@@ -64,7 +64,7 @@ pub fn collaps_jl_matrices(
     }
 }
 
-/// Compute `proof.liftin_poly` from `constraint`.
+/// Compute `proof.lifting_poly` from `constraint`.
 ///
 /// Also update `constraint.constant` and `output_stat.constraint`.
 pub fn generate_lifting_poly(
@@ -93,17 +93,21 @@ pub fn generate_lifting_poly(
     let mut new_hashbuf = [0_u8; 64];
     reader.read(&mut new_hashbuf);
 
-    output_stat.hash.copy_from_slice(&hashbuf[..16]);
+    output_stat.hash.copy_from_slice(&new_hashbuf[..16]);
 
     // generate challenge (alpha)
-    let alpha: PolyRingElem = PolyRingElem::challenge_from_seed(&hashbuf[32..64]);
+    let alpha: PolyRingElem = PolyRingElem::challenge_from_seed(&new_hashbuf[32..]);
 
+    let out_constraint = &mut output_stat.constraint;
     if i == 0 {
-        output_stat.constraint.linear_part = &constraint.linear_part * &alpha;
-        output_stat.constraint.constant = &constraint.constant * &alpha;
+        out_constraint.linear_part = &constraint.linear_part * &alpha;
+        out_constraint.constant = &constraint.constant * &alpha;
+        out_constraint.quadratic_part = &out_constraint.quadratic_part * &alpha;
     } else {
-        output_stat.constraint.linear_part += &constraint.linear_part * &alpha;
-        output_stat.constraint.constant += &constraint.constant * &alpha;
+        out_constraint.linear_part += &constraint.linear_part * &alpha;
+        out_constraint.constant += &constraint.constant * &alpha;
+        out_constraint.quadratic_part =
+            &out_constraint.quadratic_part * &(PolyRingElem::one() + &alpha);
     }
 }
 

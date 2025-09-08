@@ -66,6 +66,63 @@ pub enum CommitKeyData {
     },
 }
 
+impl CommitKeyData {
+    pub fn matrix_a(&self) -> &PolyMatrix {
+        use CommitKeyData::*;
+        match self {
+            Tail { matrix_a, .. } => matrix_a,
+            NoTail { matrix_a, .. } => matrix_a,
+        }
+    }
+
+    pub fn matrices_b(&self) -> &Vec<Vec<PolyMatrix>> {
+        use CommitKeyData::*;
+        match self {
+            Tail {
+                matrix_a: _,
+                matrices_b,
+                ..
+            } => matrices_b,
+            NoTail {
+                matrix_a: _,
+                matrices_b,
+                ..
+            } => matrices_b,
+        }
+    }
+
+    pub fn matrices_c(&self) -> &Vec<Vec<PolyMatrix>> {
+        use CommitKeyData::*;
+        match self {
+            Tail {
+                matrix_a: _,
+                matrices_b: _,
+                matrices_c,
+                ..
+            } => matrices_c,
+            NoTail {
+                matrix_a: _,
+                matrices_b: _,
+                matrices_c,
+                ..
+            } => matrices_c,
+        }
+    }
+
+    pub fn matrices_d(&self) -> Option<&Vec<Vec<PolyMatrix>>> {
+        use CommitKeyData::*;
+        match self {
+            Tail { .. } => None,
+            NoTail {
+                matrix_a: _,
+                matrices_b: _,
+                matrices_c: _,
+                matrices_d,
+            } => Some(matrices_d),
+        }
+    }
+}
+
 impl std::fmt::Debug for CommitKeyData {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         use CommitKeyData::*;
@@ -259,7 +316,23 @@ impl Commitments {
         }
     }
 
+    pub fn garbage_mut(&mut self) -> Option<&mut PolyVec> {
+        use Commitments::*;
+        match self {
+            Tail { inner: _, garbage } => Some(garbage),
+            NoTail { .. } => None,
+        }
+    }
+
     pub fn outer(&self) -> Option<(&PolyVec, &PolyVec)> {
+        use Commitments::*;
+        match self {
+            Tail { .. } => None,
+            NoTail { inner: _, u1, u2 } => Some((u1, u2)),
+        }
+    }
+
+    pub fn outer_mut(&mut self) -> Option<(&mut PolyVec, &mut PolyVec)> {
         use Commitments::*;
         match self {
             Tail { .. } => None,
@@ -276,13 +349,15 @@ impl Commitments {
 /// - modify `output_wit`
 ///   - resize `input_wit.s_i` and append to `output_wit`
 ///   - push a last element: `t || g || h`
+///
+/// Return re-packaged witness.
 #[allow(dead_code)]
 pub fn commit(
     output_stat: &mut Statement,
     output_wit: &mut Witness,
     proof: &mut Proof,
     input_wit: &Witness,
-) {
+) -> Witness {
     let r = input_wit.r;
     let com_params = &output_stat.commit_params;
     let commit_key = &output_stat.commit_key;
@@ -290,39 +365,15 @@ pub fn commit(
     // resized witness
     let packed_witness = proof.pack_witness(&input_wit);
 
-    // let mut vector_idx = 0; // in 0..r
-
     output_stat.commitments = Commitments::new(proof.tail);
     let mut inner = PolyVec::new();
     let mut garbage = PolyVec::new();
     let mut u1 = PolyVec::zero(com_params.commit_rank_2);
     let u2 = PolyVec::zero(com_params.commit_rank_2);
 
-    let matrix_a: &PolyMatrix;
-    let matrices_b: &Vec<Vec<PolyMatrix>>;
-    let matrices_c: &Vec<Vec<PolyMatrix>>;
-
-    match &commit_key.data {
-        CommitKeyData::Tail {
-            matrix_a: a,
-            matrices_b: b,
-            matrices_c: c,
-        } => {
-            matrix_a = a;
-            matrices_b = b;
-            matrices_c = c;
-        }
-        CommitKeyData::NoTail {
-            matrix_a: a,
-            matrices_b: b,
-            matrices_c: c,
-            matrices_d: _,
-        } => {
-            matrix_a = a;
-            matrices_b = b;
-            matrices_c = c;
-        }
-    }
+    let matrix_a = commit_key.data.matrix_a();
+    let matrices_b = commit_key.data.matrices_b();
+    let matrices_c = commit_key.data.matrices_c();
 
     // last vector of output_wit: t || g || h
     let mut tgh = PolyVec::new();
@@ -397,9 +448,12 @@ pub fn commit(
 
     if proof.tail {
         // hash inner and garbage
-        for byte in inner.iter_bytes().chain(garbage.iter_bytes()) {
-            hasher.update(&[byte]);
-        }
+        inner
+            .iter_bytes()
+            .chain(garbage.iter_bytes())
+            .for_each(|byte| {
+                hasher.update(&[byte]);
+            });
 
         output_stat.commitments = Commitments::Tail { inner, garbage };
     } else {
@@ -413,10 +467,11 @@ pub fn commit(
     // copy commitments from output_stat to proof
     proof.commitments = output_stat.commitments.clone();
 
-    let mut reader = hasher.finalize_xof();
-
     // store hash in output_stat
+    let mut reader = hasher.finalize_xof();
     reader.read(&mut output_stat.hash);
+
+    return packed_witness;
 }
 
 #[cfg(test)]

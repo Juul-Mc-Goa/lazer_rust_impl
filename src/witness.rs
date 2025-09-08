@@ -40,10 +40,14 @@ impl Witness {
     }
 
     pub fn print(&self) {
-        println!("Witness:");
         println!("  r: {}", self.r);
         println!("  dim: {:?}", self.dim);
-        // println!("  vectors: {:?}", self.vectors);
+        println!(
+            "vectors length: {:?}",
+            self.vectors.iter().map(|v| v.0.len()).collect::<Vec<_>>()
+        );
+        println!("norm square: {:?}", self.norm_square);
+        println!("total: {}", self.norm_square.iter().sum::<u128>());
     }
 
     /// Decompose a witness `(s_1, ..., s_r)` in `base`: `s_i = sum(k, (base ^
