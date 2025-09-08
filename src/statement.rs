@@ -118,6 +118,15 @@ impl Statement {
         )
     }
 
+    pub fn format_hash(&self) -> String {
+        let mut result = String::new();
+        for byte in self.hash {
+            result += &format!("{:02x}", byte);
+        }
+
+        result
+    }
+
     pub fn print(&self) {
         println!("  r: {}", self.r);
         println!("  dim: {}", self.dim);
@@ -151,7 +160,7 @@ impl Statement {
             self.squared_norm_bound,
             self.squared_norm_bound.ilog2()
         );
-        println!("  hash: {:?}", self.hash);
+        println!("  hash: {}", self.format_hash());
         println!("  commit key:\n{:?}", self.commit_key);
     }
 }

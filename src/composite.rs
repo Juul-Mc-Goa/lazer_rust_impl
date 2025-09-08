@@ -608,23 +608,23 @@ pub fn reduce(proof: &Proof, input_stat: &Statement) -> Statement {
     let mut output_stat: Statement = Statement::new(proof, &input_stat.hash, Some(seed));
 
     reduce_commit(&mut output_stat, proof);
-    println!("(commit) hash: {:?}", output_stat.hash);
+    println!("{:<11}: {}", "(commit)", output_stat.format_hash());
     let jl_matrices = reduce_project(
         &mut output_stat,
         proof,
         proof.r,
         input_stat.squared_norm_bound,
     );
-    println!("(project) hash: {:?}", output_stat.hash);
+    println!("{:<11}: {}", "project", output_stat.format_hash());
 
     for i in 0..U128_LEN {
         let mut constraint = collaps_jl_matrices(&mut output_stat, proof, &jl_matrices);
         reduce_gen_lifting_poly(&mut output_stat, proof, i, &mut constraint);
     }
-    println!("(agg 1) hash: {:?}", output_stat.hash);
+    println!("{:<11}: {}", "agg 1", output_stat.format_hash());
 
     reduce_agg_amortize(&mut output_stat, proof, input_stat);
-    println!("(amortize) hash: {:?}", output_stat.hash);
+    println!("{:<11}: {}", "amortize", output_stat.format_hash());
 
     output_stat
 }
@@ -635,7 +635,7 @@ pub fn reduce_tail(proof: &Proof, input_stat: &Statement) -> Statement {
     let mut output_stat: Statement = Statement::new(proof, &input_stat.hash, Some(seed));
 
     reduce_commit_tail(&mut output_stat, proof);
-    println!("(commit tail) hash: {:?}", output_stat.hash);
+    println!("{:<15}: {}", "(commit tail)", output_stat.format_hash());
     // `project` does not depend on proof.tail
     let jl_matrices = reduce_project(
         &mut output_stat,
@@ -643,16 +643,16 @@ pub fn reduce_tail(proof: &Proof, input_stat: &Statement) -> Statement {
         proof.r,
         input_stat.squared_norm_bound,
     );
-    println!("(project tail) hash: {:?}", output_stat.hash);
+    println!("{:<15}: {}", "(projec tail)", output_stat.format_hash());
 
     for i in 0..U128_LEN {
         let mut constraint = collaps_jl_matrices(&mut output_stat, proof, &jl_matrices);
         reduce_gen_lifting_poly(&mut output_stat, proof, i, &mut constraint);
     }
-    println!("(aggregate tail) hash: {:?}", output_stat.hash);
+    println!("{:<15}: {}", "(agg 1 tail)", output_stat.format_hash());
 
     reduce_amortize_tail(&mut output_stat, proof);
-    println!("(amortize tail) hash: {:?}", output_stat.hash);
+    println!("{:<15}: {}", "(amortize tail)", output_stat.format_hash());
 
     output_stat
 }

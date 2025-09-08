@@ -166,9 +166,10 @@ pub fn prove(statement: &Statement, witness: &Witness, tail: bool) -> (Statement
     let now = Instant::now();
     commit(&mut output_stat, &mut output_wit, &mut proof, &witness);
     println!(
-        "Committed ({} sec), hash: {:?}",
+        "{:<11}: {:.6} sec, {}",
+        "(commit)",
         now.elapsed().as_secs_f32(),
-        output_stat.hash
+        output_stat.format_hash()
     );
 
     let packed_wit = proof.pack_witness(&witness);
@@ -178,18 +179,20 @@ pub fn prove(statement: &Statement, witness: &Witness, tail: bool) -> (Statement
     let jl_matrices = project(&mut output_stat, &mut proof, &witness);
 
     println!(
-        "Projected ({} sec), hash: {:?}",
+        "{:<11}: {:.6} sec, {}",
+        "(project)",
         now.elapsed().as_secs_f32(),
-        output_stat.hash
+        output_stat.format_hash()
     );
 
     let now = Instant::now();
 
     aggregate_constant_coeff(&mut output_stat, &mut proof, &witness, &jl_matrices);
     println!(
-        "Aggregated ({} sec), hash: {:?}",
+        "{:<11}: {:.6} sec, {}",
+        "(aggregate)",
         now.elapsed().as_secs_f32(),
-        output_stat.hash
+        output_stat.format_hash()
     );
 
     let now = Instant::now();
@@ -201,9 +204,10 @@ pub fn prove(statement: &Statement, witness: &Witness, tail: bool) -> (Statement
         &statement,
     );
     println!(
-        "Amortized ({} sec), hash: {:?}",
+        "{:<11}: {:.6} sec, {}",
+        "(amortize)",
         now.elapsed().as_secs_f32(),
-        output_stat.hash
+        output_stat.format_hash()
     );
 
     (output_stat, output_wit, proof)

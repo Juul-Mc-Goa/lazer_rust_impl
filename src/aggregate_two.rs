@@ -396,7 +396,7 @@ pub fn amortize_aggregate(
     // witness <- decomp(z) || decomp(t) || decomp(g) || decomp(h)
     // and modify output_stat.constraint accordingly
     //
-    // t = t_1 || ... || t_r
+    // t = t_1  || ...  || t_r
     // g = g_11 || g_21 || g_22 || ... || g_rr
     // h = h_11 || h_21 || h_22 || ... || h_rr
     //
