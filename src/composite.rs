@@ -615,16 +615,16 @@ pub fn reduce(proof: &Proof, input_stat: &Statement) -> Statement {
         proof.r,
         input_stat.squared_norm_bound,
     );
-    println!("{:<11}: {}", "project", output_stat.format_hash());
+    println!("{:<11}: {}", "(project)", output_stat.format_hash());
 
     for i in 0..U128_LEN {
         let mut constraint = collaps_jl_matrices(&mut output_stat, proof, &jl_matrices);
         reduce_gen_lifting_poly(&mut output_stat, proof, i, &mut constraint);
     }
-    println!("{:<11}: {}", "agg 1", output_stat.format_hash());
+    println!("{:<11}: {}", "(aggregate)", output_stat.format_hash());
 
     reduce_agg_amortize(&mut output_stat, proof, input_stat);
-    println!("{:<11}: {}", "amortize", output_stat.format_hash());
+    println!("{:<11}: {}", "(amortize)", output_stat.format_hash());
 
     output_stat
 }
@@ -635,7 +635,7 @@ pub fn reduce_tail(proof: &Proof, input_stat: &Statement) -> Statement {
     let mut output_stat: Statement = Statement::new(proof, &input_stat.hash, Some(seed));
 
     reduce_commit_tail(&mut output_stat, proof);
-    println!("{:<15}: {}", "(commit tail)", output_stat.format_hash());
+    println!("{:<16}: {}", "(commit tail)", output_stat.format_hash());
     // `project` does not depend on proof.tail
     let jl_matrices = reduce_project(
         &mut output_stat,
@@ -643,16 +643,16 @@ pub fn reduce_tail(proof: &Proof, input_stat: &Statement) -> Statement {
         proof.r,
         input_stat.squared_norm_bound,
     );
-    println!("{:<15}: {}", "(projec tail)", output_stat.format_hash());
+    println!("{:<16}: {}", "(project tail)", output_stat.format_hash());
 
     for i in 0..U128_LEN {
         let mut constraint = collaps_jl_matrices(&mut output_stat, proof, &jl_matrices);
         reduce_gen_lifting_poly(&mut output_stat, proof, i, &mut constraint);
     }
-    println!("{:<15}: {}", "(agg 1 tail)", output_stat.format_hash());
+    println!("{:<16}: {}", "(aggregate tail)", output_stat.format_hash());
 
     reduce_amortize_tail(&mut output_stat, proof);
-    println!("{:<15}: {}", "(amortize tail)", output_stat.format_hash());
+    println!("{:<16}: {}", "(amortize tail)", output_stat.format_hash());
 
     output_stat
 }
