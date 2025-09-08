@@ -281,7 +281,22 @@ pub fn reduce_gen_lifting_poly(
 }
 
 pub fn reduce_agg_amortize(output_stat: &mut Statement, proof: &Proof, input_stat: &Statement) {
-    // TODO: reduce build_z_h (update output_stat.hash)
+    // first part: build_z_h
+    let u2 = proof
+        .commitments
+        .outer()
+        .expect("reduce_agg_amortize: output_stat.commitments should be NoTail")
+        .1;
+    let mut hasher = Shake128::default();
+    hasher.update(&output_stat.hash);
+    hasher.update(&u2.iter_bytes().collect::<Vec<_>>());
+    let mut reader = hasher.finalize_xof();
+
+    let mut hashbuf = [0_u8; 32];
+    reader.read(&mut hashbuf);
+    output_stat.hash.copy_from_slice(&hashbuf[..16]);
+
+    // second part: aggregate_amortize
     let mut hashbuf = [0_u8; 32];
     hashbuf[..16].copy_from_slice(&output_stat.hash);
     let mut rng = ChaCha8Rng::from_seed(hashbuf);

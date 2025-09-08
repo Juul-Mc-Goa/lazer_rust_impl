@@ -358,14 +358,11 @@ pub fn build_z_h(
     hasher.update(&u2.iter_bytes().collect::<Vec<_>>());
     let mut reader = hasher.finalize_xof();
 
-    let Commitments::NoTail {
-        inner: _,
-        u1: _,
-        u2: proof_u2,
-    } = &mut proof.commitments
-    else {
-        panic!("agg_amortize: proof is Tail");
-    };
+    let proof_u2 = proof
+        .commitments
+        .outer_mut()
+        .expect("build_z_h: proof.commitments should be NoTail")
+        .1;
     *proof_u2 = u2.clone();
 
     // update hash
