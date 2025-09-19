@@ -105,4 +105,8 @@ impl Witness {
 
         self.norm_square = self.vectors.iter().map(|v| v.norm_square()).collect();
     }
+
+    pub fn string_hash(&self) -> String {
+        PolyVec::string_hash_many(&self.vectors)
+    }
 }

@@ -1,5 +1,3 @@
-// TODO: aggregate all zero constraints to a single one
-
 use rand::prelude::*;
 use rand_chacha::ChaCha8Rng;
 use sha3::{
@@ -9,17 +7,18 @@ use sha3::{
 
 use crate::{
     amortize::amortize_tail,
-    commit::{CommitKey, CommitKeyData, CommitParams, Commitments},
+    commit::CommitParams,
     linear_algebra::{PolyMatrix, PolyVec, SparsePolyMatrix},
     proof::Proof,
     ring::{BaseRingElem, PolyRingElem},
     statement::Statement,
-    utils::add_apply_matrices_garbage,
+    utils::{add_apply_matrices_garbage, bytes_to_hex},
     witness::Witness,
 };
 
 /// A structure used to a recursed witness `decomp(z) || decomp(t) || decomp(g)
 /// || decomp(h)` or (dually) a linear constraint on such a witness.
+#[derive(Clone)]
 pub struct RecursedVector {
     /// Decomposition of `z`: `z_len` PolyVecs of size `dim`.
     z_part: Vec<PolyVec>,
@@ -53,15 +52,33 @@ impl RecursedVector {
         }
     }
 
-    /// Generate a linear constraint on the split witnesses.
-    pub fn to_lin_constraint(self, proof: &Proof) -> PolyVec {
-        let split_dim = proof.split_dim;
-        let mut result: Vec<PolyVec> = Vec::new();
+    pub fn string_hash(&self) -> String {
+        let mut hashbuf = [0_u8; 16];
+        let mut hasher = Shake128::default();
 
-        // split each z_k into vectors of dimension `split_dim`
-        for z_k in self.z_part {
-            result.append(&mut z_k.into_chunks(split_dim));
+        for polyvec in self
+            .z_part
+            .iter()
+            .chain(self.t_part.iter().flatten())
+            .chain(self.g_part.iter())
+            .chain(self.h_part.iter())
+        {
+            hasher.update(&polyvec.iter_bytes().collect::<Vec<_>>());
         }
+
+        let mut reader = hasher.finalize_xof();
+        reader.read(&mut hashbuf);
+
+        bytes_to_hex(&hashbuf)
+    }
+
+    /// Generate a linear constraint on the split witnesses.
+    pub fn to_lin_constraint(self) -> PolyVec {
+        // split each z_k into vectors of dimension `split_dim`
+        // for z_k in self.z_part {
+        //     result.append(&mut z_k.into_chunks(split_dim));
+        // }
+        let mut result = self.z_part.clone();
 
         // t, g, h only appear in linear constraints: we concat them into one
         // vector v
@@ -73,7 +90,8 @@ impl RecursedVector {
         v.concat(&mut PolyVec::join(&self.h_part));
 
         // split v into vectors of dimension `split_dim`
-        result.append(&mut v.into_chunks(split_dim));
+        // result.append(&mut v.into_chunks(split_dim));
+        result.push(v);
 
         PolyVec::join(&result)
     }
@@ -100,8 +118,8 @@ impl RecursedVector {
         // update self.g
         for k in 0..com_params.quadratic_length {
             for i in 0..input_stat.r {
+                let quad_i = i * (i + 1) / 2;
                 for (j, coord) in matrices_c[k][i].apply_transpose(&c_1).0.iter().enumerate() {
-                    let quad_i = i * (i + 1) / 2;
                     self.g_part[k].0[quad_i + j] += coord;
                 }
             }
@@ -179,10 +197,13 @@ impl RecursedVector {
         for k in 0..com_params.quadratic_length {
             for i in 0..input_stat.r {
                 let i_part = &k_part * &challenges[i];
-                for j in 0..=i {
-                    let quad_i: usize = i * (i + 1) / 2;
-                    self.g_part[k].0[quad_i + j] += &i_part * &challenges[j];
+                let quad_i: usize = i * (i + 1) / 2;
+                for j in 0..i {
+                    self.g_part[k].0[quad_i + j] +=
+                        &i_part * &challenges[j] * BaseRingElem::from(2);
                 }
+                // diagonal coef is special
+                self.g_part[k].0[quad_i + i] += &i_part * &challenges[i];
             }
 
             k_part = k_part * quad_base_mod_p;
@@ -324,40 +345,22 @@ pub fn build_z_h(
     // decompose and concatenate linear garbage
     let h = PolyVec::join(&h.decomp(unif_base, unif_len));
 
-    let CommitKey {
-        data:
-            CommitKeyData::NoTail {
-                matrix_a: _,
-                matrices_b: _,
-                matrices_c: _,
-                matrices_d,
-            },
-        seed: _,
-    } = commit_key
-    else {
-        panic!("amortize: commit key is `Tail`")
-    };
+    let matrices_d = commit_key
+        .data
+        .matrices_d()
+        .expect("commit key should be NoTail");
 
     // compute u2
-    let Commitments::NoTail {
-        inner: _,
-        u1: _,
-        u2,
-    } = &mut output_stat.commitments
-    else {
-        panic!("aggregate: output_stat is `Tail`");
-    };
+    let u2 = output_stat
+        .commitments
+        .outer_mut()
+        .expect("aggregate: output_stat should be NoTail")
+        .1;
 
     // sum(j <= i, D_ijk h_ijk)
     add_apply_matrices_garbage(&mut u2.0, matrices_d, &h.0, r, unif_len);
 
-    // use u2 to update output_stat.hash
-    // initialise hasher
-    let mut hasher = Shake128::default();
-    hasher.update(hash);
-    hasher.update(&u2.iter_bytes().collect::<Vec<_>>());
-    let mut reader = hasher.finalize_xof();
-
+    // copy u2 to proof
     let proof_u2 = proof
         .commitments
         .outer_mut()
@@ -365,13 +368,65 @@ pub fn build_z_h(
         .1;
     *proof_u2 = u2.clone();
 
-    // update hash
+    // use u2 to update output_stat.hash
+    let mut hasher = Shake128::default();
+    hasher.update(hash);
+    hasher.update(&u2.iter_bytes().collect::<Vec<_>>());
+    let mut reader = hasher.finalize_xof();
+
     let mut hashbuf = [0_u8; 32];
     reader.read(&mut hashbuf);
     hash.copy_from_slice(&hashbuf[..16]);
 
     // return z, h
     (z.decomp(z_base, z_len), h)
+}
+
+/// handle quadratic part:
+///   - z = sum(
+///       k in 0..f,
+///       ((2 ^ z_base) ^ k) z_k
+///     )
+///   - < z, z > = sum(
+///       k in 0..f,
+///       ((2 ^ z_base) ^ 2k) < z_k, z_k >
+///     ) + 2 * sum(
+///       l < k in 0..f,
+///       ((2 ^ z_base) ^ (k + l)) < z_k, z_l >
+///     )
+///   - each z_k is a concatenation of witnesses:
+///     z_k = s_i || ... || s_(i + chunks - 1)
+pub fn generate_quad_part(
+    c_g: PolyRingElem,
+    chunks: usize,
+    z_base: usize,
+    z_len_in: usize,
+) -> SparsePolyMatrix {
+    let mut quad_part =
+        SparsePolyMatrix(Vec::with_capacity(chunks * z_len_in * (z_len_in + 1) / 2));
+    let two_c_g = &c_g * BaseRingElem::from(2);
+
+    for k in 0..z_len_in {
+        for l in 0..=k {
+            let log_scale_factor = z_base * (k + l);
+            let scale_factor: BaseRingElem = (1 << log_scale_factor).into();
+
+            // compute `c_g < z, z >`: coef is either c_g or 2c_g
+            let coef: PolyRingElem = if l == k {
+                &c_g * &scale_factor
+            } else {
+                &two_c_g * &scale_factor
+            };
+
+            for chunk_idx in 0..chunks {
+                quad_part
+                    .0
+                    .push((chunks * k + chunk_idx, chunks * l + chunk_idx, coef.clone()));
+            }
+        }
+    }
+
+    quad_part
 }
 
 /// Build the full constraint in `output_stat`:
@@ -485,10 +540,10 @@ pub fn amortize_aggregate(
 
     let mut new_linear_part = RecursedVector::new(com_params, input_stat.r, input_stat.dim);
 
-    let (u1, u2) = input_stat
+    let (u1, u2) = output_stat
         .commitments
         .outer()
-        .expect("amortize_aggregate: input_stat.commitments should be NoTail");
+        .expect("amortize_aggregate: output_stat.commitments should be NoTail");
 
     // handle u1:
     new_linear_part.add_u1_constraint(&c_1, matrices_b, matrices_c, &com_params, input_stat);
@@ -504,7 +559,7 @@ pub fn amortize_aggregate(
         matrix_a,
         &com_params,
         input_stat,
-        &input_stat.challenges,
+        &output_stat.challenges,
     );
 
     // handle h:
@@ -512,13 +567,13 @@ pub fn amortize_aggregate(
         &input_stat.constraint.linear_part,
         &com_params,
         input_stat,
-        &input_stat.challenges,
+        &output_stat.challenges,
     );
 
     // handle aggregated relation:
     new_linear_part.add_agg_constraint(
         &c_agg,
-        &output_stat.constraint.quadratic_part,
+        &input_stat.constraint.quadratic_part,
         &com_params,
         input_stat,
     );
@@ -527,56 +582,15 @@ pub fn amortize_aggregate(
     // if the quadratic part in `input_stat` is non-empty:
     if !input_stat.constraint.quadratic_part.0.is_empty() {
         // handle g:
-        new_linear_part.add_g_constraint(&c_g, &com_params, input_stat, &input_stat.challenges);
-
-        // handle quadratic part:
-        //   - z = sum(
-        //       k in 0..f,
-        //       ((2 ^ z_base) ^ k) z_k
-        //     )
-        //   - < z, z > = sum(
-        //       k in 0..f,
-        //       ((2 ^ z_base) ^ 2k) < z_k, z_k >
-        //     ) + 2 * sum(
-        //       l < k in 0..f,
-        //       ((2 ^ z_base) ^ (k + l)) < z_k, z_l >
-        //     )
-        //   - each z_k is a concatenation of witnesses:
-        //     z_k = s_i || ... || s_(i + chunks - 1)
+        new_linear_part.add_g_constraint(&c_g, &com_params, input_stat, &output_stat.challenges);
 
         let chunks = proof.chunks[0];
         let z_base = input_stat.commit_params.z_base;
         let z_len_in = input_stat.commit_params.z_length;
 
-        output_stat.constraint.quadratic_part.0 =
-            Vec::with_capacity(chunks * z_len_in * (z_len_in + 1) / 2);
-
-        for k in 0..z_len_in {
-            for l in 0..=k {
-                let log_scale_factor = z_base * (k + l);
-                let scale_factor: BaseRingElem = (1 << log_scale_factor).into();
-
-                // compute `-< z, z >`: coef is either -1 or -2
-                let mut coef: PolyRingElem = if l == k {
-                    -PolyRingElem::one()
-                } else {
-                    let two: BaseRingElem = 2.into();
-                    (-two).into()
-                };
-
-                coef = &scale_factor * coef;
-
-                for chunk_idx in 0..chunks {
-                    output_stat.constraint.quadratic_part.0.push((
-                        chunks * k + chunk_idx,
-                        chunks * l + chunk_idx,
-                        coef.clone(),
-                    ));
-                }
-            }
-        }
+        output_stat.constraint.quadratic_part = generate_quad_part(c_g, chunks, z_base, z_len_in);
     }
 
     // copy new linear part to output constraint
-    output_stat.constraint.linear_part = new_linear_part.to_lin_constraint(proof);
+    output_stat.constraint.linear_part = new_linear_part.to_lin_constraint();
 }

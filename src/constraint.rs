@@ -47,6 +47,12 @@ impl Constraint {
         Self::new_raw(1)
     }
 
+    pub fn check(&self, vectors: &[PolyVec]) -> PolyRingElem {
+        self.quadratic_part.quad_apply(vectors)
+            + self.linear_part.scalar_prod(&PolyVec::join(vectors))
+            + &self.constant
+    }
+
     /// Join two `Constraint`s into one that works on concatenated vectors.
     ///
     /// If `self.check(v1) == true` and `other.check(v2) == true`, then

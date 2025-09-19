@@ -11,6 +11,7 @@ use sha3::{
 
 use crate::constants::PLAN;
 use crate::constants::{DEGREE, ONE_HALF_MOD_PRIME, PRIME, PRIME_BYTES_LEN, TAU1, TAU2};
+use crate::utils::bytes_to_hex;
 use std::fmt::Debug;
 use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
@@ -120,7 +121,7 @@ impl BaseRingElem {
     /// Convert a `BaseRingElem` into a `Vec<u8>` (least-endian)
     /// of size `PRIME_BYTES_LEN`.
     pub fn to_le_bytes(&self) -> Vec<u8> {
-        self.element.residue().to_le_bytes()[((DEGREE as usize >> 3) - PRIME_BYTES_LEN)..].to_vec()
+        self.element.residue().to_le_bytes()[..PRIME_BYTES_LEN].to_vec()
     }
 
     pub fn from_le_bytes(bytes: &[u8; PRIME_BYTES_LEN]) -> Self {
@@ -137,6 +138,22 @@ impl BaseRingElem {
     pub fn halve(&self) -> Self {
         let one_half: BaseRingElem = ONE_HALF_MOD_PRIME.into();
         self * one_half
+    }
+
+    pub fn string_hash_many(elem_slice: &[BaseRingElem]) -> String {
+        let mut bytes: Vec<u8> = Vec::new();
+
+        for elem in elem_slice {
+            bytes.append(&mut elem.to_le_bytes());
+        }
+
+        let mut output = [0_u8; 16];
+        let mut hasher = Shake128::default();
+        hasher.update(&bytes);
+
+        let mut reader = hasher.finalize_xof();
+        reader.read(&mut output);
+        bytes_to_hex(&output)
     }
 }
 
@@ -245,6 +262,12 @@ impl PolyRingElem {
         reader.read(output);
     }
 
+    pub fn string_hash(&self) -> String {
+        let mut output = [0_u8; 16];
+        self.hash(&mut output);
+        bytes_to_hex(&output)
+    }
+
     pub fn hash_many(input: &[PolyRingElem], output: &mut [u8]) {
         let mut hasher = Shake128::default();
         input
@@ -253,6 +276,13 @@ impl PolyRingElem {
 
         let mut reader = hasher.finalize_xof();
         reader.read(output);
+    }
+
+    pub fn string_hash_many(splice: &[PolyRingElem]) -> String {
+        let mut output = [0_u8; 16];
+        Self::hash_many(splice, &mut output);
+
+        bytes_to_hex(&output)
     }
 
     /// Generate an uniformly random polynomial from a given RNG.

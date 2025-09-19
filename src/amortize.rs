@@ -1,5 +1,4 @@
 use crate::{
-    commit::{CommitKey, CommitKeyData, Commitments},
     constants::{DEGREE, PRIME_BYTES_LEN},
     linear_algebra::PolyVec,
     proof::Proof,
@@ -24,10 +23,12 @@ pub fn amortize_tail(
     proof: &mut Proof,
     tmp_wit: &Witness,
 ) {
-    let r = output_stat.r;
-    let dim = output_stat.dim;
-    let z_base = output_stat.commit_params.z_base;
-    let z_len = output_stat.commit_params.z_length;
+    let (r, dim, z_base, z_len) = (
+        output_stat.r,
+        output_stat.dim,
+        output_stat.commit_params.z_base,
+        output_stat.commit_params.z_length,
+    );
     let mut h: Vec<PolyRingElem> = Vec::with_capacity(2 * r);
     let mut hashbuf = [0_u8; 16 + 2 * DEGREE as usize * PRIME_BYTES_LEN];
 

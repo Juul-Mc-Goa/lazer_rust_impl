@@ -127,6 +127,14 @@ impl Statement {
         result
     }
 
+    pub fn post_process(&mut self) {
+        let r = self.constraint.linear_part.0.len().div_ceil(self.dim);
+        self.constraint
+            .linear_part
+            .0
+            .resize(self.dim * r, PolyRingElem::zero());
+    }
+
     pub fn print(&self) {
         println!("  r: {}", self.r);
         println!("  dim: {}", self.dim);
@@ -145,16 +153,24 @@ impl Statement {
         println!("    u1_len: {}", self.commit_params.u1_len);
         println!("    u2_len: {}", self.commit_params.u2_len);
 
-        println!("  commitments: elided");
-        println!("  challenges:");
-        for challenge in self.challenges.iter() {
-            println!("    {:?}", challenge);
-        }
+        println!("  commitments: {}", self.commitments.string_hash());
         println!(
-            "  constraint: elided (non-zero quad coefs: {}, size of linear part: {})",
-            self.constraint.quadratic_part.0.len(),
-            self.constraint.linear_part.0.len(),
+            "  challenges: {}",
+            PolyRingElem::string_hash_many(&self.challenges)
         );
+        println!("  constraint:");
+        let quad_part = &self.constraint.quadratic_part;
+        println!(
+            "    quad part: ({} non zero coefs) {}",
+            quad_part.0.len(),
+            quad_part.string_hash(),
+        );
+        println!("quad part: {:#?}", quad_part.0);
+        println!(
+            "    lin part: {}",
+            self.constraint.linear_part.string_hash()
+        );
+        println!("    constant: {}", self.constraint.constant.string_hash());
         println!(
             "  squared_norm_bound: {}, (ie around 2^{})",
             self.squared_norm_bound,

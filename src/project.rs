@@ -103,6 +103,9 @@ pub fn project(statement: &mut Statement, proof: &mut Proof, wit: &Witness) -> V
         projection_too_big = proj_norm_square(&proof.projection) > norm_square;
     }
 
+    // reverse last increment
+    proof.jl_nonce -= 1;
+
     // initialise hasher: send hashbuf[..16] + proof.projection as input
     let mut hasher = Shake128::default();
     // digest the left part of `hashbuf` and the bytes in `projection`

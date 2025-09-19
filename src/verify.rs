@@ -47,7 +47,11 @@ impl std::fmt::Debug for VerifyError {
                 f,
                 "sum(ij, a_ij g_ij) + sum(i, h_ii) + c != 0, diff = {diff:?}"
             ),
-            QuadGarbageCheck(diff) => write!(f, "<z, z> != sum(ij, c_i c_j g_ij), diff = {diff:?}"),
+            QuadGarbageCheck(diff) => write!(
+                f,
+                "{} != {}, diff = {diff:?}",
+                "<z, z>", "sum(ij, c_i c_j g_ij)"
+            ),
             UnifGarbageCheck(false, diff) => {
                 write!(
                     f,
@@ -57,7 +61,8 @@ impl std::fmt::Debug for VerifyError {
             UnifGarbageCheck(true, diff) => {
                 write!(
                     f,
-                    "<sum(i, c_i b_i), z > != sum(i, c_i (h_(2i - 1) + c_i h_(2i))), diff = {diff:?}"
+                    "{} != {} + {}, diff = {diff:?}",
+                    "<sum(i, c_i b_i), z >", "sum(i, c_i h_(2i - 1)", "c_i^2 h_(2i))"
                 )
             }
         }
@@ -182,7 +187,7 @@ pub fn check_quad_constraint(
 
 /// Check the following constraint:
 /// - NoTail: `< sum(i, c_i b_i), z > = sum(ij, c_i c_j h_ij)`,
-/// - Tail: `< sum(i, c_i b_i), z > = sum(i, h_(2i-1) c_i + h_(2i) c_i^2)`.
+/// - Tail: `< sum(i, c_i b_i), z > = sum(i, c_i h_(2i-1) + c_i^2 h_(2i))`.
 pub fn check_h_constraint(
     tail: bool,
     r: usize,
@@ -206,7 +211,7 @@ pub fn check_h_constraint(
     diff += lin_aggregate.scalar_prod(z);
 
     if tail {
-        // tail: sum(i, h_(2i-1) c_i + h_(2i) c_i^2)
+        // tail: sum(i, c_i h_(2i-1) + c_i^2 h_(2i))
         diff += &challenges[0] * &challenges[0] * &h.0[0];
         (1..r).for_each(|i| {
             diff += &challenges[i] * &(&h.0[2 * i - 1] + &challenges[i] * &h.0[2 * i]);
@@ -306,6 +311,11 @@ pub fn verify(output_stat: &Statement, input_stat: &Statement, witness: &Witness
         t = inner.clone();
         let gh = unwrap_tail(garbage).clone();
         (g, h) = gh.split(quad_size);
+        // println!(
+        //     "verify tail: g size = {}, h size = {}",
+        //     g.0.len(),
+        //     h.0.len()
+        // );
     } else {
         let _ = check_outer_commits(output_stat, witness)?;
 

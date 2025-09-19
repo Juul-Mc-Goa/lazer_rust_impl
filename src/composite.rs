@@ -8,7 +8,7 @@ use sha3::{
 
 use crate::{
     aggregate_one::collaps_jl_matrices,
-    aggregate_two::RecursedVector,
+    aggregate_two::{RecursedVector, generate_quad_part},
     commit::{CommitKeyData, Commitments},
     constants::{
         CHALLENGE_NORM, DEGREE, JL_MAX_NORM_SQ, LOG_PRIME, PRIME_BYTES_LEN, SLACK, U128_LEN,
@@ -19,9 +19,9 @@ use crate::{
     project::proj_norm_square,
     proof::{Proof, sis_secure},
     prove,
-    ring::{BaseRingElem, PolyRingElem},
+    ring::PolyRingElem,
     statement::Statement,
-    utils::Aes128Ctr64LE,
+    utils::{Aes128Ctr64LE, print_header, print_sub_header},
     verify::{VerifyResult, verify},
     witness::Witness,
 };
@@ -71,31 +71,28 @@ pub fn composite_prove(
     temp_wit: &mut TempWitness,
     temp_wit_size: &mut [f64; 2],
 ) {
+    print_header("composite prove");
+
     let mut i: usize = 1;
     let mut new_proof: Proof;
 
+    print_sub_header("initial proof");
     (temp_stat[1], temp_wit[1], new_proof) = prove(&temp_stat[0], &temp_wit[0], false);
+    temp_wit[1].post_process();
+    temp_stat[1].post_process();
     comp_data.proof.push(new_proof);
     temp_wit_size[1] = witness_size(&temp_wit[1]);
     comp_data.l += 1;
-
-    println!("initial proof done");
-
-    println!("Statement 1:",);
-    temp_stat[1].print();
-
-    println!("Witness 1:",);
-    temp_wit[1].post_process();
-    temp_wit[1].print();
 
     // iterate until the new proof is bigger than the old one
     // `NoTail` variant is used.
     while comp_data.l < 16 {
         let l = comp_data.l;
-        println!("\ncomposite prove {l}");
+        print_sub_header(&format!("composite prove {l}"));
 
         (temp_stat[i ^ 1], temp_wit[i ^ 1], new_proof) = prove(&temp_stat[i], &temp_wit[i], false);
         temp_wit[i ^ 1].post_process();
+        temp_stat[i ^ 1].post_process();
 
         comp_data.proof.push(new_proof);
 
@@ -114,10 +111,16 @@ pub fn composite_prove(
         i ^= 1;
     }
 
+    let diff = temp_stat[i].constraint.check(&temp_wit[i].vectors);
+
+    assert_eq!(diff, PolyRingElem::zero());
+
     // last proof: `Tail` variant is used.
     if comp_data.l < 16 {
-        println!("\n(last proof) composite prove {}", comp_data.l);
+        print_sub_header(&format!("prove tail ({i}) {}", comp_data.l));
         (temp_stat[i ^ 1], temp_wit[i ^ 1], new_proof) = prove(&temp_stat[i], &temp_wit[i], true);
+        temp_wit[i ^ 1].post_process();
+        temp_stat[i ^ 1].post_process();
 
         let proof_size = proof_size(&new_proof);
         comp_data.proof.push(new_proof);
@@ -256,20 +259,18 @@ pub fn reduce_gen_lifting_poly(
     constraint.constant = constant;
 
     // update hash
-    let mut hashbuf = [0_u8; 16 + DEGREE as usize * PRIME_BYTES_LEN];
-    hashbuf[0..16].copy_from_slice(&output_stat.hash);
-    hashbuf[16..].copy_from_slice(&proof.lifting_poly[i].to_le_bytes());
-
+    let mut hashbuf = [0_u8; 64];
     let mut hasher = Shake128::default();
-    hasher.update(&hashbuf);
+    hasher.update(&output_stat.hash);
+    hasher.update(&proof.lifting_poly[i].to_le_bytes());
+
     let mut reader = hasher.finalize_xof();
-    let mut new_hashbuf = [0_u8; 64];
-    reader.read(&mut new_hashbuf);
+    reader.read(&mut hashbuf);
 
     output_stat.hash.copy_from_slice(&hashbuf[..16]);
 
     // generate challenge (alpha)
-    let alpha: PolyRingElem = PolyRingElem::challenge_from_seed(&new_hashbuf[32..]);
+    let alpha: PolyRingElem = PolyRingElem::challenge_from_seed(&hashbuf[32..]);
 
     if i == 0 {
         output_stat.constraint.linear_part = &constraint.linear_part * &alpha;
@@ -280,13 +281,33 @@ pub fn reduce_gen_lifting_poly(
     }
 }
 
-pub fn reduce_agg_amortize(output_stat: &mut Statement, proof: &Proof, input_stat: &Statement) {
-    // first part: build_z_h
+pub fn reduce_build_z_h(output_stat: &mut Statement, proof: &Proof) {
+    let (r, challenges, hash) = (
+        output_stat.r,
+        &mut output_stat.challenges,
+        &mut output_stat.hash,
+    );
+
+    // generate challenges
+    let mut hashbuf = [0_u8; 32];
+    hashbuf[..16].copy_from_slice(&*hash);
+    let mut rng = ChaCha8Rng::from_seed(hashbuf);
+    *challenges = (0..r).map(|_| PolyRingElem::challenge(&mut rng)).collect();
+
+    // copy u2 to output_stat
     let u2 = proof
         .commitments
         .outer()
+        .expect("reduce_agg_amortize: proof.commitments should be NoTail")
+        .1;
+    let stat_u2 = output_stat
+        .commitments
+        .outer_mut()
         .expect("reduce_agg_amortize: output_stat.commitments should be NoTail")
         .1;
+    *stat_u2 = u2.clone();
+
+    // use u2 to update output_stat.hash
     let mut hasher = Shake128::default();
     hasher.update(&output_stat.hash);
     hasher.update(&u2.iter_bytes().collect::<Vec<_>>());
@@ -295,18 +316,27 @@ pub fn reduce_agg_amortize(output_stat: &mut Statement, proof: &Proof, input_sta
     let mut hashbuf = [0_u8; 32];
     reader.read(&mut hashbuf);
     output_stat.hash.copy_from_slice(&hashbuf[..16]);
+}
 
-    // second part: aggregate_amortize
+pub fn reduce_amortize_aggregate(
+    output_stat: &mut Statement,
+    proof: &Proof,
+    input_stat: &Statement,
+) {
+    // first part: build_z_h
+    reduce_build_z_h(output_stat, proof);
+
+    // second part: amortize_aggregate
     let mut hashbuf = [0_u8; 32];
     hashbuf[..16].copy_from_slice(&output_stat.hash);
     let mut rng = ChaCha8Rng::from_seed(hashbuf);
 
-    let (com_params, com_rank_1, com_rank_2, z_base, z_len) = (
+    let (com_params, z_base, z_len, com_rank_1, com_rank_2) = (
         &output_stat.commit_params,
-        output_stat.commit_params.commit_rank_1,
-        output_stat.commit_params.commit_rank_2,
         output_stat.commit_params.z_base,
         output_stat.commit_params.z_length,
+        output_stat.commit_params.commit_rank_1,
+        output_stat.commit_params.commit_rank_2,
     );
 
     if !sis_secure(
@@ -352,9 +382,10 @@ pub fn reduce_agg_amortize(output_stat: &mut Statement, proof: &Proof, input_sta
     let mut new_linear_part =
         RecursedVector::new(&output_stat.commit_params, input_stat.r, input_stat.dim);
 
-    let Commitments::NoTail { inner: _, u1, u2 } = &input_stat.commitments else {
-        panic!("aggregate 2: commitments in input statement is Commitments::Tail");
-    };
+    let (u1, u2) = proof
+        .commitments
+        .outer()
+        .expect("amortize_aggregate: proof.commitments should be NoTail");
 
     // handle u1:
     new_linear_part.add_u1_constraint(&c_1, matrices_b, matrices_c, &com_params, input_stat);
@@ -370,7 +401,7 @@ pub fn reduce_agg_amortize(output_stat: &mut Statement, proof: &Proof, input_sta
         matrix_a,
         &com_params,
         input_stat,
-        &input_stat.challenges,
+        &output_stat.challenges,
     );
 
     // handle h:
@@ -378,13 +409,13 @@ pub fn reduce_agg_amortize(output_stat: &mut Statement, proof: &Proof, input_sta
         &input_stat.constraint.linear_part,
         &com_params,
         input_stat,
-        &input_stat.challenges,
+        &output_stat.challenges,
     );
 
     // handle aggregated relation:
     new_linear_part.add_agg_constraint(
         &c_agg,
-        &output_stat.constraint.quadratic_part,
+        &input_stat.constraint.quadratic_part,
         &com_params,
         input_stat,
     );
@@ -393,54 +424,31 @@ pub fn reduce_agg_amortize(output_stat: &mut Statement, proof: &Proof, input_sta
     // if the quadratic part in `input_stat` is non-empty:
     if !input_stat.constraint.quadratic_part.0.is_empty() {
         // handle g
-        new_linear_part.add_g_constraint(&c_g, &com_params, input_stat, &input_stat.challenges);
+        new_linear_part.add_g_constraint(&c_g, &com_params, input_stat, &output_stat.challenges);
 
         // handle quadratic part
         let chunks = proof.chunks[0];
         let z_base = input_stat.commit_params.z_base;
         let z_len_in = input_stat.commit_params.z_length;
 
-        output_stat.constraint.quadratic_part.0 =
-            Vec::with_capacity(chunks * z_len_in * (z_len_in + 1) / 2);
-
-        for k in 0..z_len_in {
-            for l in 0..=k {
-                let log_scale_factor = z_base * (k + l);
-                let scale_factor: BaseRingElem = (1 << log_scale_factor).into();
-
-                // compute `-< z, z >`: coef is either -1 or -2
-                let mut coef: PolyRingElem = if l == k {
-                    -PolyRingElem::one()
-                } else {
-                    let two: BaseRingElem = 2.into();
-                    (-two).into()
-                };
-
-                coef = &scale_factor * coef;
-
-                for chunk_idx in 0..chunks {
-                    output_stat.constraint.quadratic_part.0.push((
-                        chunks * k + chunk_idx,
-                        chunks * l + chunk_idx,
-                        coef.clone(),
-                    ));
-                }
-            }
-        }
+        output_stat.constraint.quadratic_part = generate_quad_part(c_g, chunks, z_base, z_len_in);
     }
 
     // copy new linear part to output constraint
-    output_stat.constraint.linear_part = new_linear_part.to_lin_constraint(proof);
+    output_stat.constraint.linear_part = new_linear_part.to_lin_constraint();
 }
 pub fn reduce_amortize_tail(output_stat: &mut Statement, proof: &Proof) {
-    let r = output_stat.r;
-    let com_params = &output_stat.commit_params;
-    let (z_base, z_len) = (com_params.z_base, com_params.z_length);
-
-    output_stat.squared_norm_bound = proof.norm_square;
+    let (r, dim, z_base, z_len, com_rank_1, com_rank_2) = (
+        output_stat.r,
+        output_stat.dim,
+        output_stat.commit_params.z_base,
+        output_stat.commit_params.z_length,
+        output_stat.commit_params.commit_rank_1,
+        output_stat.commit_params.commit_rank_2,
+    );
 
     if !sis_secure(
-        com_params.commit_rank_1,
+        com_rank_1,
         6.0 * CHALLENGE_NORM as f64
             * *SLACK
             * (1 << (z_len - 1) * z_base) as f64
@@ -451,26 +459,21 @@ pub fn reduce_amortize_tail(output_stat: &mut Statement, proof: &Proof) {
 
     if !proof.tail
         && !sis_secure(
-            com_params.commit_rank_2,
+            com_rank_2,
             2.0 * *SLACK * (output_stat.squared_norm_bound as f64).sqrt(),
         )
     {
         panic!("reduce_amortize_tail(): Outer commitments are not secure");
     }
 
-    let (
-        Commitments::Tail {
-            inner: _,
-            garbage: stat_garbage,
-        },
-        Commitments::Tail {
-            inner: _,
-            garbage: proof_garbage,
-        },
-    ) = (&mut output_stat.commitments, &proof.commitments)
-    else {
-        panic!("reduce_amortize_tail(): incompatible Tail variants (output_stat, proof)");
-    };
+    let stat_garbage = output_stat
+        .commitments
+        .garbage_mut()
+        .expect("reduce_amortize_tail: output_stat.commitments should be Tail");
+    let proof_garbage = proof
+        .commitments
+        .garbage()
+        .expect("reduce_amortize_tail: proof.commitments should be Tail");
 
     *stat_garbage = proof_garbage.clone();
 
@@ -503,6 +506,12 @@ pub fn reduce_amortize_tail(output_stat: &mut Statement, proof: &Proof) {
     });
 
     output_stat.hash.copy_from_slice(&hashbuf[..16]);
+    output_stat.squared_norm_bound = proof.norm_square;
+    output_stat
+        .constraint
+        .linear_part
+        .0
+        .resize(r * dim, PolyRingElem::zero());
 }
 
 #[allow(dead_code)]
@@ -608,7 +617,9 @@ pub fn reduce(proof: &Proof, input_stat: &Statement) -> Statement {
     let mut output_stat: Statement = Statement::new(proof, &input_stat.hash, Some(seed));
 
     reduce_commit(&mut output_stat, proof);
+
     println!("{:<11}: {}", "(commit)", output_stat.format_hash());
+
     let jl_matrices = reduce_project(
         &mut output_stat,
         proof,
@@ -623,7 +634,7 @@ pub fn reduce(proof: &Proof, input_stat: &Statement) -> Statement {
     }
     println!("{:<11}: {}", "(aggregate)", output_stat.format_hash());
 
-    reduce_agg_amortize(&mut output_stat, proof, input_stat);
+    reduce_amortize_aggregate(&mut output_stat, proof, input_stat);
     println!("{:<11}: {}", "(amortize)", output_stat.format_hash());
 
     output_stat
@@ -635,7 +646,8 @@ pub fn reduce_tail(proof: &Proof, input_stat: &Statement) -> Statement {
     let mut output_stat: Statement = Statement::new(proof, &input_stat.hash, Some(seed));
 
     reduce_commit_tail(&mut output_stat, proof);
-    println!("{:<16}: {}", "(commit tail)", output_stat.format_hash());
+    println!("{:<11}: {}", "(commit)", output_stat.format_hash());
+
     // `project` does not depend on proof.tail
     let jl_matrices = reduce_project(
         &mut output_stat,
@@ -643,33 +655,42 @@ pub fn reduce_tail(proof: &Proof, input_stat: &Statement) -> Statement {
         proof.r,
         input_stat.squared_norm_bound,
     );
-    println!("{:<16}: {}", "(project tail)", output_stat.format_hash());
+    println!("{:<11}: {}", "(project)", output_stat.format_hash());
 
     for i in 0..U128_LEN {
         let mut constraint = collaps_jl_matrices(&mut output_stat, proof, &jl_matrices);
         reduce_gen_lifting_poly(&mut output_stat, proof, i, &mut constraint);
     }
-    println!("{:<16}: {}", "(aggregate tail)", output_stat.format_hash());
+    println!("{:<11}: {}", "(aggregate)", output_stat.format_hash());
 
     reduce_amortize_tail(&mut output_stat, proof);
-    println!("{:<16}: {}", "(amortize tail)", output_stat.format_hash());
+
+    println!("{:<11}: {}", "(amortize)", output_stat.format_hash());
 
     output_stat
 }
 
 /// Verify a composite proof.
-pub fn composite_verify(comp_data: &Composite, statement: &mut [Statement; 2]) -> VerifyResult {
+pub fn composite_verify(comp_data: &Composite, temp_stat: &mut [Statement; 2]) -> VerifyResult {
+    print_header("composite verify");
+
+    print_sub_header("initial reduce");
     let mut i: usize = 0;
     let l = comp_data.l;
 
     // the first l-1 reductions are NoTail
     for j in 0..(l - 1) {
-        statement[i ^ 1] = reduce(&comp_data.proof[j], &statement[i]);
+        temp_stat[i ^ 1] = reduce(&comp_data.proof[j], &temp_stat[i]);
+        temp_stat[i ^ 1].post_process();
         i ^= 1;
     }
 
     // last reduce, Tail variant
-    statement[i ^ 1] = reduce_tail(&comp_data.proof[l - 1], &statement[i]);
+    print_sub_header(&format!("reduce tail ({i})"));
+    temp_stat[i ^ 1] = reduce_tail(&comp_data.proof[l - 1], &temp_stat[i]);
+    temp_stat[i ^ 1].post_process();
+    i ^= 1;
 
-    verify(&statement[i ^ 1], &statement[i], &comp_data.witness)
+    print_sub_header("verify");
+    verify(&temp_stat[i], &temp_stat[i ^ 1], &comp_data.witness)
 }

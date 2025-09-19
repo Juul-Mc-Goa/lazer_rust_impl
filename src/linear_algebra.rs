@@ -3,7 +3,10 @@ use std::{
     ops::{Add, AddAssign, Mul, MulAssign},
 };
 
-use crate::ring::{BaseRingElem, PolyRingElem};
+use crate::{
+    ring::{BaseRingElem, PolyRingElem},
+    utils::bytes_to_hex,
+};
 
 use rand_chacha::ChaCha8Rng;
 use sha3::{
@@ -184,8 +187,16 @@ impl PolyVec {
         let mut reader = hasher.finalize_xof();
         reader.read(output);
     }
+
     pub fn hash(&self, output: &mut [u8]) {
         PolyVec::hash_raw(output, &self.0)
+    }
+
+    pub fn string_hash(&self) -> String {
+        let mut hashbuf = [0_u8; 16];
+        self.hash(&mut hashbuf);
+
+        bytes_to_hex(&hashbuf)
     }
 
     pub fn hash_many(output: &mut [u8], splice: &[PolyVec]) {
@@ -195,6 +206,13 @@ impl PolyVec {
         }
         let mut reader = hasher.finalize_xof();
         reader.read(output);
+    }
+
+    pub fn string_hash_many(splice: &[PolyVec]) -> String {
+        let mut hashbuf = [0_u8; 16];
+        Self::hash_many(&mut hashbuf, splice);
+
+        bytes_to_hex(&hashbuf)
     }
 
     /// Generate an uniformly random `PolyVec` from a given RNG.
@@ -447,6 +465,16 @@ impl SparsePolyMatrix {
         result
     }
 
+    pub fn quad_apply(&self, vectors: &[PolyVec]) -> PolyRingElem {
+        let mut result = PolyRingElem::zero();
+
+        self.0.iter().for_each(|(i, j, coef)| {
+            result += coef * &vectors[*i].scalar_prod(&vectors[*j]);
+        });
+
+        result
+    }
+
     pub fn apply_to_garbage(&self, vector: &PolyVec) -> PolyRingElem {
         let mut result = PolyRingElem::zero();
 
@@ -460,6 +488,22 @@ impl SparsePolyMatrix {
 
     pub fn add_mul_assign(&mut self, coef: &PolyRingElem) {
         *self = &*self * &(PolyRingElem::one() + coef);
+    }
+
+    pub fn string_hash(&self) -> String {
+        let mut hashbuf = [0_u8; 16];
+
+        let mut hasher = Shake128::default();
+        self.0.iter().for_each(|(i, j, coef)| {
+            hasher.update(&i.to_le_bytes());
+            hasher.update(&j.to_le_bytes());
+            hasher.update(&coef.to_le_bytes());
+        });
+
+        let mut reader = hasher.finalize_xof();
+        reader.read(&mut hashbuf);
+
+        bytes_to_hex(&hashbuf)
     }
 }
 

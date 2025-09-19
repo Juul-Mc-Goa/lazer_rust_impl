@@ -117,6 +117,7 @@ fn generate_context(r: usize, dim: usize, tail: bool, seed: Seed) -> (Witness, P
     let mut linear_part: PolyVec = PolyVec::new();
     let mut challenges: Vec<PolyRingElem> = Vec::new();
     for i in 0..r {
+        // let mut lin_part_i = PolyVec::zero(dim);
         let mut lin_part_i = PolyVec::random(dim, &mut rng);
         constant += lin_part_i.scalar_prod(&witness.vectors[i]);
         linear_part.concat(&mut lin_part_i);
@@ -236,16 +237,15 @@ fn main() {
             &mut temp_wit_size,
         );
 
-        println!("\nComposite Verify: ");
         let mut temp_stat = [stat.clone(), stat];
         let result = composite_verify(&comp_data, &mut temp_stat);
-        println!("\nResult: {result:?}");
+        println!("Result: {result:?}");
     }
 
     // {
     //     use crate::verify::verify;
 
-    //     let tail = false;
+    //     let tail = true;
     //     let dim = 128;
     //     let r = 32;
     //     let (wit, _proof, stat) = generate_context(r, dim, tail, random_seed());

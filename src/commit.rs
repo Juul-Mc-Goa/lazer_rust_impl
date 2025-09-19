@@ -48,7 +48,7 @@ pub enum CommitKeyData {
         matrix_a: PolyMatrix,
         /// `z_length * r` matrices of size `commit_rank_2 * commit_rank_1`
         matrices_b: Vec<Vec<PolyMatrix>>,
-        /// `quad_length * r` matrices, where `matrix_c[i][k]` has size `commit_rank_2 * (r - i)`.
+        /// `quad_length * r` matrices, where `matrix_c[k][i]` has size `commit_rank_2 * (r - i)`.
         matrices_c: Vec<Vec<PolyMatrix>>,
     },
     /// The matrices `A, B, C, D` used to compute:
@@ -339,6 +339,18 @@ impl Commitments {
         match self {
             Tail { .. } => None,
             NoTail { inner: _, u1, u2 } => Some((u1, u2)),
+        }
+    }
+
+    pub fn string_hash(&self) -> String {
+        use Commitments::*;
+        match self {
+            Tail { inner, garbage } => {
+                PolyVec::join(&[inner.clone(), garbage.clone()]).string_hash()
+            }
+            NoTail { inner, u1, u2 } => {
+                PolyVec::join(&[inner.clone(), u1.clone(), u2.clone()]).string_hash()
+            }
         }
     }
 }

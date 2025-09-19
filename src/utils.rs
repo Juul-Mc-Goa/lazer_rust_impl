@@ -22,6 +22,35 @@ pub fn next_2_power(mut x: u64) -> u64 {
     x
 }
 
+pub fn print_header(title: &str) {
+    let width = 100;
+    let pad_size = width - title.len() - 4;
+    let half_size = pad_size / 2;
+
+    let left_pad = "═".repeat(half_size);
+    let right_pad = "═".repeat(pad_size - half_size);
+    println!("\n{left_pad}╡ {title} ╞{right_pad}");
+}
+
+pub fn print_sub_header(title: &str) {
+    let width = 100;
+    let pad_size = width - title.len() - 4;
+    let half_size = pad_size / 2;
+
+    let left_pad = "─".repeat(half_size);
+    let right_pad = "─".repeat(pad_size - half_size);
+    println!("{left_pad}┤ {title} ├{right_pad}");
+}
+
+pub fn bytes_to_hex(bytes: &[u8]) -> String {
+    let mut result = String::new();
+    for byte in bytes {
+        result += &format!("{:02x}", byte);
+    }
+
+    result
+}
+
 /// Split the last witness (`t || g || h`).
 pub fn split_tgh<'a>(
     tgh: &'a PolyVec,
