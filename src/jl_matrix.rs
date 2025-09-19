@@ -1,9 +1,10 @@
-use crate::constants::{DEGREE, PRIME};
+use crate::constants::DEGREE;
 use crate::linear_algebra::PolyVec;
 use crate::ring::{BaseRingElem, PolyRingElem};
 use crate::utils::Aes128Ctr64LE;
 
 use aes::cipher::StreamCipher;
+use rayon::prelude::*;
 
 #[allow(dead_code)]
 pub struct JLMatrix {
@@ -68,32 +69,35 @@ impl JLMatrix {
     /// Unpack a `JLMatrix` into a vector of `PolyVec`s (with coefficients equal to +- 1).
     /// Each `PolyVec` represents a line in the matrix.
     pub fn as_polyvecs(&self) -> Vec<PolyVec> {
-        let mut result: Vec<PolyVec> = Vec::new();
         let degree_bytes = DEGREE as usize >> 3;
 
-        for packed_v in self.data.chunks_exact(degree_bytes * self.dim) {
-            let mut new_v = PolyVec::new();
-            for packed_poly in packed_v.chunks_exact(degree_bytes) {
-                let mut new_poly_vec: Vec<u64> = Vec::new();
+        let one = BaseRingElem::one();
+        let neg_one = -BaseRingElem::one();
 
-                for bit in 0..(DEGREE as usize) {
-                    let byte_idx = bit >> 3;
-                    let mask = 1 << (bit & 7);
+        self.data
+            .par_chunks_exact(degree_bytes * self.dim)
+            .map(|packed_v| {
+                PolyVec(
+                    packed_v
+                        .par_chunks_exact(degree_bytes)
+                        .map(|packed_poly| PolyRingElem {
+                            element: (0..(DEGREE as usize))
+                                .map(|bit| {
+                                    let byte_idx = bit >> 3;
+                                    let mask = 1 << (bit & 7);
 
-                    if packed_poly[byte_idx] & mask != 0 {
-                        new_poly_vec.push(PRIME - 1);
-                    } else {
-                        new_poly_vec.push(1);
-                    }
-                }
-
-                new_v.0.push(PolyRingElem::from_vec_u64(new_poly_vec));
-            }
-
-            result.push(new_v);
-        }
-
-        result
+                                    if packed_poly[byte_idx] & mask != 0 {
+                                        neg_one
+                                    } else {
+                                        one
+                                    }
+                                })
+                                .collect(),
+                        })
+                        .collect(),
+                )
+            })
+            .collect()
     }
 
     /// Apply [`Self::as_polyvecs`], then apply `Polyvec::mut_invert_x` on each
@@ -101,9 +105,12 @@ impl JLMatrix {
     pub fn as_polyvecs_inverted(&self) -> Vec<PolyVec> {
         let mut result = self.as_polyvecs();
 
-        for v in result.as_mut_slice() {
+        // result.as_mut_slice().into_par_iter().for_each(|v| {
+        //     v.invert_x();
+        // });
+        result.as_mut_slice().into_iter().for_each(|v| {
             v.invert_x();
-        }
+        });
 
         result
     }

@@ -1,18 +1,19 @@
+use std::time::Instant;
+
 use rand::{Rng, SeedableRng, seq::SliceRandom};
 use rand_chacha::ChaCha8Rng;
 
 use crate::{
     aggregate_one::aggregate_constant_coeff,
-    aggregate_two::aggregate_input_stat,
-    amortize::amortize,
+    aggregate_two::amortize_aggregate,
     commit::{CommitKey, Commitments, commit},
+    composite::{Composite, composite_prove, composite_verify, witness_size},
     constraint::Constraint,
     linear_algebra::{PolyVec, SparsePolyMatrix},
     project::project,
     proof::Proof,
     ring::PolyRingElem,
     statement::Statement,
-    verify::verify,
     witness::Witness,
 };
 
@@ -36,8 +37,9 @@ mod amortize;
 mod commit;
 mod dachshund;
 mod project;
-mod recursive_prover;
 mod verify;
+
+mod composite;
 
 type Seed = <ChaCha8Rng as SeedableRng>::Seed;
 
@@ -115,9 +117,10 @@ fn generate_context(r: usize, dim: usize, tail: bool, seed: Seed) -> (Witness, P
     let mut linear_part: PolyVec = PolyVec::new();
     let mut challenges: Vec<PolyRingElem> = Vec::new();
     for i in 0..r {
-        let mut v = PolyVec::random(dim, &mut rng);
-        constant += v.scalar_prod(&witness.vectors[i]);
-        linear_part.concat(&mut v);
+        // let mut lin_part_i = PolyVec::zero(dim);
+        let mut lin_part_i = PolyVec::random(dim, &mut rng);
+        constant += lin_part_i.scalar_prod(&witness.vectors[i]);
+        linear_part.concat(&mut lin_part_i);
 
         challenges.push(PolyRingElem::challenge(&mut rng));
     }
@@ -152,47 +155,107 @@ fn generate_context(r: usize, dim: usize, tail: bool, seed: Seed) -> (Witness, P
     )
 }
 
-fn main() {
-    let (wit, mut proof, stat) = generate_context(10, 30, false, Default::default());
-
-    println!("Generated random context");
-    println!(
-        "  predicted witness norm: {} (ie around 2^{})",
-        proof.norm_square,
-        proof.norm_square.ilog2()
+pub fn prove(statement: &Statement, witness: &Witness, tail: bool) -> (Statement, Witness, Proof) {
+    let mut proof = Proof::new(witness.clone(), 1, tail);
+    let mut output_stat = Statement::new(
+        &proof,
+        &statement.hash,
+        Some(statement.commit_key.seed.clone()),
     );
-    println!("  split dimension: {}", proof.split_dim);
-
-    let mut output_stat = Statement::new(&proof, &stat.hash, None);
     let mut output_wit = Witness::new(&output_stat);
 
-    // commit
-    commit(&mut output_stat, &mut output_wit, &mut proof, &wit);
-    println!("Committed");
+    let now = Instant::now();
+    commit(&mut output_stat, &mut output_wit, &mut proof, &witness);
+    println!(
+        "{:<11}: {:.6} sec, {}",
+        "(commit)",
+        now.elapsed().as_secs_f32(),
+        output_stat.format_hash()
+    );
 
-    let packed_wit = proof.pack_witness(&wit);
-    println!("packed witness:");
-    packed_wit.print();
+    let packed_wit = proof.pack_witness(&witness);
 
-    let jl_matrices = project(&mut output_stat, &mut proof, &wit);
-    println!("Projected");
+    let now = Instant::now();
 
-    aggregate_constant_coeff(&mut output_stat, &mut proof, &wit, &jl_matrices);
-    println!("Aggregated");
+    let jl_matrices = project(&mut output_stat, &mut proof, &witness);
 
-    aggregate_input_stat(&mut output_stat, &proof, &stat);
-    amortize(
+    println!(
+        "{:<11}: {:.6} sec, {}",
+        "(project)",
+        now.elapsed().as_secs_f32(),
+        output_stat.format_hash()
+    );
+
+    let now = Instant::now();
+
+    aggregate_constant_coeff(&mut output_stat, &mut proof, &witness, &jl_matrices);
+    println!(
+        "{:<11}: {:.6} sec, {}",
+        "(aggregate)",
+        now.elapsed().as_secs_f32(),
+        output_stat.format_hash()
+    );
+
+    let now = Instant::now();
+    amortize_aggregate(
         &mut output_stat,
-        &stat,
         &mut output_wit,
         &mut proof,
         &packed_wit,
+        &statement,
+    );
+    println!(
+        "{:<11}: {:.6} sec, {}",
+        "(amortize)",
+        now.elapsed().as_secs_f32(),
+        output_stat.format_hash()
     );
 
-    println!("\nOutput statement:");
-    output_stat.print();
+    (output_stat, output_wit, proof)
+}
 
-    print!("Verify: ");
-    let result = verify(&output_stat, &stat, &output_wit);
-    println!("{result:?}");
+fn main() {
+    {
+        let tail = false;
+        let (wit, _proof, stat) = generate_context(30, 50, tail, random_seed());
+        println!("Generated random context");
+
+        let mut comp_data = Composite {
+            l: 0,
+            size: 0.0,
+            proof: Vec::new(),
+            witness: wit.clone(),
+        };
+        let mut temp_stat = [stat.clone(), stat.clone()];
+        let mut temp_wit_size = [witness_size(&wit), 0_f64];
+        let mut temp_wit = [wit.clone(), wit];
+
+        composite_prove(
+            &mut comp_data,
+            &mut temp_stat,
+            &mut temp_wit,
+            &mut temp_wit_size,
+        );
+
+        let mut temp_stat = [stat.clone(), stat];
+        let result = composite_verify(&comp_data, &mut temp_stat);
+        println!("Result: {result:?}");
+    }
+
+    // {
+    //     use crate::verify::verify;
+
+    //     let tail = true;
+    //     let dim = 128;
+    //     let r = 32;
+    //     let (wit, _proof, stat) = generate_context(r, dim, tail, random_seed());
+
+    //     println!("Generated random context");
+
+    //     let (output_stat, output_wit, _proof) = prove(&stat, &wit, tail);
+
+    //     print!("\nVerify: ");
+    //     let result = verify(&output_stat, &stat, &output_wit);
+    //     println!("{result:?}");
+    // }
 }

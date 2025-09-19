@@ -16,7 +16,7 @@ pub struct Proof {
     pub split_dim: usize,
     /// Decomposition parts.
     pub chunks: Vec<usize>,
-    /// `true` if this proof should not be recursively reduced further.
+    /// `true` if this proof is the last one of a composite proof.
     pub tail: bool,
     /// Commitment parameters.
     pub commit_params: CommitParams,
@@ -170,7 +170,7 @@ fn commit_rank_1_total_norm(
 
     // variance of a vector with `length` coordinates, each uniform in
     // 0..2^base
-    let var_decomp = |base: u128, length: u128| (length << 2 * base) / 12;
+    let var_decomp = |base: u128, length: u128| ((length - 1) << 2 * base) / 12;
     // variance of the highest digit
     let var_highest = |base: u128, length: u128, var: u128| var >> (base * (length - 1));
 
@@ -183,10 +183,11 @@ fn commit_rank_1_total_norm(
             (var_decomp(z_base, z_len) + var_highest(z_base, z_len, varz)) * split_dim as u128;
 
         if !is_tail {
-            // quadratic contribution: linear coefs
-            let shr_amount: u32 = (unif_base * (unif_len - 1)) as u32;
+            // garbage contribution: linear coefs
+            let shr_amount: u32 = 2 * (unif_base * (unif_len - 1)) as u32;
             total_norm_square += (var_decomp(unif_base, unif_len)
-                + (1_u128 << 2 * LOG_PRIME as u128).unbounded_shr(shr_amount) / 12)
+                + (1_u128 << 2 * LOG_PRIME as u128).unbounded_shr(shr_amount))
+                / 12
                 * (t_rank + quad_rank) as u128;
         }
 
@@ -288,7 +289,7 @@ impl Proof {
         };
 
         let mut dim = vec![0_usize; r]; // dimension of each vector (before splitting)
-        // vectors will be split into dim.div_ceil(chunks) vectors of lower dimension
+        // vectors will be split into `dim.div_ceil(chunks[i])` vectors of rank `chunks[i]`.
         let mut chunks = vec![0_usize; r];
         let mut norm_square = vec![0_u128; r]; // squared l2 norm
 
@@ -457,7 +458,7 @@ impl Proof {
             commitments: Commitments::new(is_tail),
             jl_nonce: 0,
             projection: [0.into(); 256],
-            lifting_poly: Vec::new(),
+            lifting_poly: vec![PolyRingElem::zero(); 256],
             norm_square: total_norm_square,
         }
     }

@@ -24,7 +24,7 @@ use crate::{
 /// ```
 /// where `s' = s_1 || ... || s_r`.
 #[allow(dead_code)]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Constraint {
     pub degree: usize,
     pub quadratic_part: SparsePolyMatrix,
@@ -45,6 +45,12 @@ impl Constraint {
     /// Generate a new constraint.
     pub fn new() -> Self {
         Self::new_raw(1)
+    }
+
+    pub fn check(&self, vectors: &[PolyVec]) -> PolyRingElem {
+        self.quadratic_part.quad_apply(vectors)
+            + self.linear_part.scalar_prod(&PolyVec::join(vectors))
+            + &self.constant
     }
 
     /// Join two `Constraint`s into one that works on concatenated vectors.
@@ -137,7 +143,6 @@ impl Constraint {
         let mut all_constants: Vec<PolyRingElem> = vec![PolyRingElem::zero(); 256];
 
         for (i, jl_matrix) in jl_matrices.iter().enumerate() {
-            println!("jl matrix {i}");
             let mut rows = jl_matrix.as_polyvecs_inverted();
 
             for j in 0..256 {
@@ -160,6 +165,7 @@ impl Constraint {
 }
 
 /// Aggregate several constraints acting on the same vector space.
+#[allow(dead_code)]
 pub fn aggregate_proj_constraints(
     r: usize,
     dim: usize,
@@ -170,9 +176,8 @@ pub fn aggregate_proj_constraints(
     let mut constant: PolyRingElem = PolyRingElem::zero();
 
     for (challenge, constraint) in challenges.iter().zip(constraints.iter()) {
-        let poly_challenge: PolyRingElem = (*challenge).into();
         // update linear_part
-        linear_part.add_mul_assign(&poly_challenge, &constraint.linear_part);
+        linear_part.add_scale_assign(&challenge, &constraint.linear_part);
         // update constant
         constant += challenge * &constraint.constant;
     }
@@ -189,11 +194,11 @@ pub fn unpack_challenges(challenges: &[u8]) -> [BaseRingElem; 256] {
     let mut alpha = [BaseRingElem::zero(); 256];
 
     let build_base_elem = |limbs: &[u8]| -> BaseRingElem {
-        let mut shift = 1 << 8_u64;
+        let mut shift: u64 = 1;
         let mut result = limbs[0] as u64;
         for i in 1..PRIME_BYTES_LEN {
-            result += shift * limbs[i] as u64;
-            shift *= 256;
+            result += (limbs[i] as u64) << shift;
+            shift += 8;
         }
 
         result.into()

@@ -5,9 +5,13 @@ edition = "2024"
 
 [dependencies]
 aes = "*"
+concrete-ntt = "0.2.0"
 ctr = "*"
 hex = "*"
 lazy_static = "1.5.0"
+num-modular = "0.6.1"
+pprof = { version = "0.15", features = ["flamegraph"] }
 rand = "*"
 rand_chacha = "*"
+rayon = "1.11.0"
 sha3 = "*"

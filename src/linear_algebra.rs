@@ -1,6 +1,12 @@
-use std::ops::{Add, AddAssign, Mul, MulAssign};
+use std::{
+    iter::Sum,
+    ops::{Add, AddAssign, Mul, MulAssign},
+};
 
-use crate::ring::{BaseRingElem, PolyRingElem};
+use crate::{
+    ring::{BaseRingElem, PolyRingElem},
+    utils::bytes_to_hex,
+};
 
 use rand_chacha::ChaCha8Rng;
 use sha3::{
@@ -11,12 +17,13 @@ use sha3::{
 #[derive(Clone, Debug)]
 pub struct PolyVec(pub Vec<PolyRingElem>);
 
+#[derive(Clone, Debug)]
 pub struct PolyMatrix(pub Vec<Vec<PolyRingElem>>);
 
 /// Sparse matrix with polynomial coefficients: a vector of
 /// `(row_index, column_index, coef)`.
 #[allow(dead_code)]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SparsePolyMatrix(pub Vec<(usize, usize, PolyRingElem)>);
 
 #[allow(dead_code)]
@@ -32,8 +39,13 @@ impl PolyVec {
     }
 
     /// Compute the sum of each squared coefficients (in `A_q`)
+    pub fn norm_square_raw(raw: &[PolyRingElem]) -> u128 {
+        raw.iter().map(|r| r.norm_square()).sum()
+    }
+
+    /// Compute the sum of each squared coefficients (in `A_q`)
     pub fn norm_square(&self) -> u128 {
-        self.0.iter().map(|r| r.norm_square()).sum()
+        PolyVec::norm_square_raw(&self.0)
     }
 
     /// Check if this `PolyVec` is the zero vector.
@@ -97,6 +109,17 @@ impl PolyVec {
         result
     }
 
+    pub fn clone_range(&self, start: usize, end: usize) -> Self {
+        if end > self.0.len() {
+            let mut vec = self.0[start..].to_vec();
+            vec.resize(end - start, PolyRingElem::zero());
+
+            Self(vec)
+        } else {
+            Self(self.0[start..end].to_vec())
+        }
+    }
+
     /// Concatenate two `PolyVec`s: `self <- self || other`.
     pub fn concat(&mut self, other: &mut PolyVec) {
         self.0.append(&mut other.0);
@@ -158,29 +181,38 @@ impl PolyVec {
         PolyVec::iter_bytes_raw(&self.0)
     }
 
-    pub fn hash_raw(raw_vec: &[PolyRingElem]) -> String {
+    pub fn hash_raw(output: &mut [u8], raw_vec: &[PolyRingElem]) {
         let mut hasher = Shake128::default();
         hasher.update(&PolyVec::iter_bytes_raw(raw_vec).collect::<Vec<_>>());
         let mut reader = hasher.finalize_xof();
-        let mut hashbuf = [0_u8; 32];
-        reader.read(&mut hashbuf);
-
-        hex::encode(hashbuf)
-    }
-    pub fn hash(&self) -> String {
-        PolyVec::hash_raw(&self.0)
+        reader.read(output);
     }
 
-    pub fn hash_many(splice: &[PolyVec]) -> String {
+    pub fn hash(&self, output: &mut [u8]) {
+        PolyVec::hash_raw(output, &self.0)
+    }
+
+    pub fn string_hash(&self) -> String {
+        let mut hashbuf = [0_u8; 16];
+        self.hash(&mut hashbuf);
+
+        bytes_to_hex(&hashbuf)
+    }
+
+    pub fn hash_many(output: &mut [u8], splice: &[PolyVec]) {
         let mut hasher = Shake128::default();
         for polyvec in splice {
             hasher.update(&polyvec.iter_bytes().collect::<Vec<_>>());
         }
         let mut reader = hasher.finalize_xof();
-        let mut hashbuf = [0_u8; 32];
-        reader.read(&mut hashbuf);
+        reader.read(output);
+    }
 
-        hex::encode(hashbuf)
+    pub fn string_hash_many(splice: &[PolyVec]) -> String {
+        let mut hashbuf = [0_u8; 16];
+        Self::hash_many(&mut hashbuf, splice);
+
+        bytes_to_hex(&hashbuf)
     }
 
     /// Generate an uniformly random `PolyVec` from a given RNG.
@@ -214,6 +246,13 @@ impl PolyVec {
     }
 
     /// Update `self`: `self <- self + coef * other`.
+    pub fn add_scale_assign(&mut self, coef: &BaseRingElem, other: &Self) {
+        for (coef_self, coef_other) in self.0.iter_mut().zip(other.0.iter()) {
+            *coef_self += coef * coef_other;
+        }
+    }
+
+    /// Update `self`: `self <- self + coef * other`.
     pub fn add_mul_assign(&mut self, coef: &PolyRingElem, other: &Self) {
         for (coef_self, coef_other) in self.0.iter_mut().zip(other.0.iter()) {
             *coef_self += coef * coef_other;
@@ -223,8 +262,17 @@ impl PolyVec {
 
 impl<'a> AddAssign<&'a PolyVec> for PolyVec {
     fn add_assign(&mut self, other: &'a PolyVec) {
-        for (self_coord, other_coord) in self.0.iter_mut().zip(other.0.iter()) {
-            *self_coord += other_coord;
+        if other.0.is_empty() {
+            return;
+        } else if self.0.is_empty() {
+            self.0 = other.0.clone()
+        } else {
+            self.0
+                .iter_mut()
+                .zip(other.0.iter())
+                .for_each(|(self_coord, other_coord)| {
+                    *self_coord += other_coord;
+                });
         }
     }
 }
@@ -247,15 +295,33 @@ where
     }
 }
 
+impl<'a> Sum<&'a PolyVec> for PolyVec {
+    fn sum<I: Iterator<Item = &'a PolyVec>>(iter: I) -> PolyVec {
+        let mut result = PolyVec::new();
+        iter.for_each(|v| result += v);
+
+        result
+    }
+}
+
+impl Sum<PolyVec> for PolyVec {
+    fn sum<I: Iterator<Item = PolyVec>>(iter: I) -> PolyVec {
+        let mut result = PolyVec::new();
+        iter.for_each(|v| result += v);
+
+        result
+    }
+}
+
 /// Scalar multiplication.
 impl<'a, T> MulAssign<&'a T> for PolyVec
 where
     PolyRingElem: MulAssign<&'a T>,
 {
     fn mul_assign(&mut self, other: &'a T) {
-        for coef_self in self.0.iter_mut() {
+        self.0.iter_mut().for_each(|coef_self| {
             *coef_self *= other;
-        }
+        });
     }
 }
 
@@ -312,15 +378,23 @@ impl PolyMatrix {
             );
         }
 
-        for (i, line) in self.0.iter().enumerate() {
-            for (coef, coord) in line.iter().zip(input.iter()) {
+        self.0.iter().enumerate().for_each(|(i, line)| {
+            line.iter().zip(input.iter()).for_each(|(coef, coord)| {
                 output[i] += coef * coord;
-            }
-        }
+            });
+        });
     }
 
     /// Compute `self * input`.
     pub fn apply_raw(&self, input: &[PolyRingElem]) -> Vec<PolyRingElem> {
+        if input.len() != self.0[0].len() {
+            panic!(
+                "Applying matrix to incompatible vector: matrix columns = {}, vector length = {}",
+                self.0[0].len(),
+                input.len()
+            );
+        }
+
         let mut output = vec![PolyRingElem::zero(); self.0.len()];
         self.add_apply_raw(&mut output, input);
 
@@ -349,11 +423,14 @@ impl PolyMatrix {
             );
         }
 
-        for (coef, line) in input.iter().zip(self.0.iter()) {
-            for (result_coord, input_coord) in result.iter_mut().zip(line.iter()) {
-                *result_coord += coef * input_coord;
-            }
-        }
+        input.iter().zip(self.0.iter()).for_each(|(coef, line)| {
+            result
+                .iter_mut()
+                .zip(line.iter())
+                .for_each(|(result_coord, input_coord)| {
+                    *result_coord += coef * input_coord;
+                });
+        });
 
         result
     }
@@ -369,6 +446,35 @@ impl SparsePolyMatrix {
         Self(Vec::new())
     }
 
+    pub fn push(&mut self, i: usize, j: usize, coef: PolyRingElem) {
+        // we assume the array of coefs is sorted
+        let entry_idx = self
+            .0
+            .partition_point(|(k, l, _)| (*k < i) || (*k == i && *l < j));
+
+        self.0.insert(entry_idx, (i, j, coef));
+    }
+
+    pub fn apply(&self, vector: &PolyVec) -> PolyVec {
+        let mut result: PolyVec = PolyVec::zero(vector.0.len());
+
+        self.0.iter().for_each(|(i, j, coef)| {
+            result.0[*i] += coef * &vector.0[*j];
+        });
+
+        result
+    }
+
+    pub fn quad_apply(&self, vectors: &[PolyVec]) -> PolyRingElem {
+        let mut result = PolyRingElem::zero();
+
+        self.0.iter().for_each(|(i, j, coef)| {
+            result += coef * &vectors[*i].scalar_prod(&vectors[*j]);
+        });
+
+        result
+    }
+
     pub fn apply_to_garbage(&self, vector: &PolyVec) -> PolyRingElem {
         let mut result = PolyRingElem::zero();
 
@@ -378,6 +484,38 @@ impl SparsePolyMatrix {
         });
 
         result
+    }
+
+    pub fn add_mul_assign(&mut self, coef: &PolyRingElem) {
+        *self = &*self * &(PolyRingElem::one() + coef);
+    }
+
+    pub fn string_hash(&self) -> String {
+        let mut hashbuf = [0_u8; 16];
+
+        let mut hasher = Shake128::default();
+        self.0.iter().for_each(|(i, j, coef)| {
+            hasher.update(&i.to_le_bytes());
+            hasher.update(&j.to_le_bytes());
+            hasher.update(&coef.to_le_bytes());
+        });
+
+        let mut reader = hasher.finalize_xof();
+        reader.read(&mut hashbuf);
+
+        bytes_to_hex(&hashbuf)
+    }
+}
+
+impl Mul<&PolyRingElem> for &SparsePolyMatrix {
+    type Output = SparsePolyMatrix;
+    fn mul(self, other: &PolyRingElem) -> Self::Output {
+        SparsePolyMatrix(
+            self.0
+                .iter()
+                .map(|(i, j, coef)| (*i, *j, other * coef))
+                .collect::<Vec<_>>(),
+        )
     }
 }
 
